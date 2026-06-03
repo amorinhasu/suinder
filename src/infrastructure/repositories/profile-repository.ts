@@ -201,6 +201,29 @@ export class ProfileRepository {
     return mapProfileRow(profile);
   }
 
+  public async updateLookingFor(guildId: string, profileId: string, lookingFor: LookingForOption[]): Promise<UserProfile> {
+    const result = await this.database.query<ProfileRow>(
+      `
+        update user_profiles
+        set looking_for = $3::text[],
+            updated_at = now()
+        where guild_id = $1
+          and id = $2
+          and status <> 'deleted'
+          and status not in ('suspended', 'banned')
+        returning *
+      `,
+      [guildId, profileId, lookingFor]
+    );
+
+    const profile = result.rows[0];
+    if (!profile) {
+      throw new Error('Perfil não encontrado ou indisponível para edição de interesses.');
+    }
+
+    return mapProfileRow(profile);
+  }
+
   public async updateCompatibilityAnswers(guildId: string, profileId: string, answers: CompatibilityAnswers): Promise<UserProfile> {
     const result = await this.database.query<ProfileRow>(
       `

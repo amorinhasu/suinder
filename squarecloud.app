@@ -1,5 +1,5 @@
 MEMORY=512
 DISPLAY_NAME=SUINDER
 VERSION=recommended
-MAIN=src/main.ts
+MAIN=dist/main.js
 START=npm run build && npm run migrate && npm start

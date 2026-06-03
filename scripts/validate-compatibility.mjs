@@ -69,6 +69,7 @@ async function main() {
     '💚 Compatibilidade:',
     'Vocês combinam em:',
     'formatCompatibilityAnswers(profile.compatibilityAnswers)',
+    'formatInterests(profile.lookingFor)',
     'serializeCompatibilityAnswers(existingProfile.compatibilityAnswers)'
   ];
   for (const piece of commandPieces) {
@@ -76,6 +77,7 @@ async function main() {
   }
 
   assert(!command.includes('DM e preferências opcionais'), 'Compatibility preferences must not be collected as free-form modal text');
+  assert(domain.includes('MAX_PROFILE_INTERESTS = 5') && domain.includes('Conversar') && domain.includes('Calls'), 'Guided interests must be available for compatibility inputs');
   assert(!domain.includes('openai') && !service.includes('openai') && !command.includes('openai'), 'Compatibility must not use AI/OpenAI APIs');
   assert(!domain.includes('fetch(') && !service.includes('fetch('), 'Compatibility must not call external APIs');
   assert(pkg.includes('compatibility:check') && pkg.includes('compatibilidade:check'), 'package.json must expose compatibility checks');

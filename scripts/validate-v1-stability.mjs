@@ -133,6 +133,7 @@ async function main() {
   assert(migrations.includes('012_add_profile_terms.sql'), 'Terms migration must exist');
   assert(migrations.indexOf('010_add_daily_like_limit.sql') < migrations.indexOf('011_add_compatibility_answers.sql'), 'Migrations must keep daily-like before compatibility in sorted order');
   assert(migrations.indexOf('011_add_compatibility_answers.sql') < migrations.indexOf('012_add_profile_terms.sql'), 'Migrations must keep compatibility before terms in sorted order');
+  assert(migrations.indexOf('012_add_profile_terms.sql') < migrations.indexOf('013_add_guided_profile_interests.sql'), 'Migrations must keep guided interests after terms in sorted order');
 
   const superLikeMethod = profileRepository.slice(profileRepository.indexOf('recordSuperLikeAndMaybeCreateMatch'));
   assert(!superLikeMethod.slice(0, superLikeMethod.indexOf('public async recordPass')).includes("'daily_like'"), 'Super Like must not consume daily like limit');

@@ -59,6 +59,10 @@ async function main() {
 
   assert(publicPanel.includes('filter_all') && publicPanel.includes('Filtro: Todos'), 'Public panel must expose discovery filter buttons');
   assert(publicPanel.includes('LOOKING_FOR_OPTIONS'), 'Public panel filters must use allowed profile interests');
+  assert(publicPanel.includes('chunkInterestFilterButtons') && publicPanel.includes('index += 5'), 'Public panel must chunk guided interest filters into valid Discord action rows');
+  assert(command.includes('PROFILE_INTERESTS_BUTTON_ID') && command.includes('buildInterestsSelectRows(profile)'), 'Profile panel must expose guided interests selection');
+  assert(command.includes('INTERESTS_SELECT_ID') && command.includes('setMaxValues(MAX_PROFILE_INTERESTS)'), 'Guided interests must use a bounded multi-select menu');
+  assert(repository.includes('updateLookingFor(guildId: string, profileId: string, lookingFor: LookingForOption[])'), 'Repository must persist guided interests in looking_for');
   assert(adminCommand.includes("value: 'daily_like_limit'"), 'Admin config command must expose daily_like_limit');
   assert(adminCommand.includes('settings.dailyLikeLimit'), 'Admin settings embed must show daily like limit');
   assert(adminRepository.includes("['daily_like_limit', 'daily_like_limit']"), 'Admin repository must allow daily_like_limit updates');

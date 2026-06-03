@@ -68,7 +68,7 @@ async function main() {
     "buildDiscoveryButtonId('next', profile.id, filter)",
     'handleDiscoveryLike',
     'handleDiscoveryReportSubmit',
-    'Por segurança, o perfil denunciado foi bloqueado automaticamente'
+    'Por segurança, esse perfil foi bloqueado para você'
   ];
 
   for (const piece of requiredCommandPieces) {

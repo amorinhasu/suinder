@@ -4,6 +4,7 @@ export const SUINDER_EMBED_COLOR = 0x1f8f5f;
 
 export const SUINDER_VISUAL_ASSETS = {
   BANNER_INICIAL: 'https://cdn.discordapp.com/attachments/1511571213905039370/1511571237854253126/content.png?ex=6a20efea&is=6a1f9e6a&hm=3cd2feda10270d3594fbe6d17edf309e5af3b5cf538a89712a695db0ad4d626f&',
+  BANNER_TERMOS: 'https://cdn.discordapp.com/attachments/1511571213905039370/1511812347143131156/content.png',
   BANNER_CRIAR_PERFIL: 'https://cdn.discordapp.com/attachments/1511571213905039370/1511571514032656384/content.png?ex=6a20f02c&is=6a1f9eac&hm=a3e10707a29f719fe332cf5cc4b6530c1127f5a80c3bc439dc4f6b3b401f72d1&',
   BANNER_PERFIL: 'https://cdn.discordapp.com/attachments/1511571213905039370/1511572523727458426/content.png?ex=6a20f11d&is=6a1f9f9d&hm=5232356f644d9dd0c432e410cd06066b934484af9c5cebff806c4210aff1d325&',
   BANNER_PERFIL_PAUSADO: 'https://cdn.discordapp.com/attachments/1511571213905039370/1511580583342641283/content.png?ex=6a20f89e&is=6a1fa71e&hm=1e5fefac31d1d54c715016a2a836193598ec825268f5ee03ff29ecefb849d6ba&',

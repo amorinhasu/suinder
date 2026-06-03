@@ -524,7 +524,7 @@ Em match:
 1. Usuário executa `/suinder perfil criar`.
 2. Bot apresenta termo de uso e regras de conduta em mensagem efêmera.
 3. Usuário confirma opt-in.
-4. Usuário preenche campos permitidos.
+4. Usuário preenche campos permitidos, incluindo idade obrigatória como número inteiro 18+ com ou sem sinal de `+` (ex.: `18`, `+18`, `25`, `31`) e configura interesses por seleção guiada quando quiser participar da descoberta.
 5. Bot valida tamanho, conteúdo básico e duplicidade.
 6. Perfil entra como `active` ou `pending_review`, dependendo se haverá revisão manual.
 
@@ -536,7 +536,7 @@ Antes de criar perfil ou continuar usando o SUÍNDER, o usuário deve aceitar os
 
 ### 11.2 Descoberta de perfil
 
-1. Usuário executa `/suinder descobrir` opcionalmente com filtro de sessão por interesse (`Todos`, `Romance`, `Amizades`, `Jogos`, `Filmes e Séries`, `Música`, `Call e Conversa`).
+1. Usuário executa `/suinder descobrir` opcionalmente com filtro de sessão por interesse (`Todos`, `Jogos`, `Filmes e Séries`, `Música`, `Conversar`, `Livros`, `Romance`, `Amizade`, `Calls`, `Arte`, `Memes`).
 2. Sistema valida se o usuário aceitou a versão atual dos termos e tem perfil ativo.
 3. Sistema seleciona perfil elegível respeitando o filtro da sessão quando ele for diferente de `Todos`.
 4. Sistema exclui o próprio perfil, perfis bloqueados em qualquer direção, perfis com `pass` ainda válido, perfis fora do filtro escolhido e qualquer perfil que não esteja `active`, +18, com consentimento, termos atuais aceitos e ao menos um interesse.
@@ -631,7 +631,7 @@ Um perfil pode ser mostrado se:
 
 - Está na mesma guild.
 - Está `active`.
-- Tem idade +18, consentimento +18 registrado e ao menos um interesse.
+- Tem idade +18 registrada como número inteiro válido, consentimento +18 registrado e ao menos um interesse.
 - Não pertence ao usuário atual.
 - Não foi bloqueado por nenhum dos lados.
 - Não tem ação `pass` ainda válida do usuário atual; `Próximo` também registra `pass` temporário para evitar repetição infinita.

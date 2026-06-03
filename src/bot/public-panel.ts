@@ -16,12 +16,7 @@ export type PublicPanelAction =
   | 'pause'
   | 'help'
   | 'filter_all'
-  | 'filter_0'
-  | 'filter_1'
-  | 'filter_2'
-  | 'filter_3'
-  | 'filter_4'
-  | 'filter_5';
+  | `filter_${number}`;
 
 const filterActions = ['filter_all', ...LOOKING_FOR_OPTIONS.map((_, index) => `filter_${index}`)] as PublicPanelAction[];
 
@@ -86,17 +81,21 @@ export function buildPublicPanelActionRows(): ActionRowBuilder<ButtonBuilder>[] 
         .setLabel('Filtro: Todos')
         .setStyle(ButtonStyle.Secondary)
     ),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...LOOKING_FOR_OPTIONS.slice(0, 4).map((option, index) => new ButtonBuilder()
-        .setCustomId(buildPublicPanelButtonId(`filter_${index}` as PublicPanelAction))
-        .setLabel(`Filtro: ${option}`)
-        .setStyle(ButtonStyle.Secondary))
-    ),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...LOOKING_FOR_OPTIONS.slice(4).map((option, offset) => new ButtonBuilder()
-        .setCustomId(buildPublicPanelButtonId(`filter_${offset + 4}` as PublicPanelAction))
-        .setLabel(`Filtro: ${option}`)
-        .setStyle(ButtonStyle.Secondary))
-    )
+    ...chunkInterestFilterButtons()
   ];
+}
+
+
+function chunkInterestFilterButtons(): ActionRowBuilder<ButtonBuilder>[] {
+  const buttons = LOOKING_FOR_OPTIONS.map((option, index) => new ButtonBuilder()
+    .setCustomId(buildPublicPanelButtonId(`filter_${index}` as PublicPanelAction))
+    .setLabel(`Filtro: ${option}`)
+    .setStyle(ButtonStyle.Secondary));
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+
+  for (let index = 0; index < buttons.length; index += 5) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons.slice(index, index + 5)));
+  }
+
+  return rows;
 }

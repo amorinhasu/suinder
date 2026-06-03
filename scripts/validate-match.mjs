@@ -62,8 +62,8 @@ async function main() {
     'handleDiscoveryLike(',
     'likeDiscoveredProfile(guildId, interaction.user.id, targetProfileId, normalizeDiscoveryFilter(filter))',
     'sendMatchDms(context, interaction.user.id, result.targetProfile)',
-    '💖 Deu match!',
-    '💌 Curtida enviada.',
+    '✨ Conexão encontrada!',
+    '💚 Curtida enviada.',
     'context.client.users.fetch(discordUserId)',
     'await user.send({ content: message })',
     "context.logger.warn('Failed to send match DM'"

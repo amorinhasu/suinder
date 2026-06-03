@@ -3,13 +3,19 @@ export const PROFILE_BIO_MAX_LENGTH = 500;
 export const PROFILE_MIN_AGE = 18;
 export const CURRENT_TERMS_VERSION = '2026-06';
 
+export const MAX_PROFILE_INTERESTS = 5;
+
 export const LOOKING_FOR_OPTIONS = [
-  'Romance',
-  'Amizades',
   'Jogos',
   'Filmes e Séries',
   'Música',
-  'Call e Conversa'
+  'Conversar',
+  'Livros',
+  'Romance',
+  'Amizade',
+  'Calls',
+  'Arte',
+  'Memes'
 ] as const;
 
 export const COMPATIBILITY_QUESTIONS = [
@@ -31,8 +37,14 @@ const COMPATIBILITY_POINT_EMOJIS: Record<string, string> = {
   Filmes: '🎬',
   Planejar: '🗓️',
   Improvisar: '✨',
-  Romance: '💚',
+  Romance: '❤️',
+  Amizade: '🤝',
   Amizades: '🤝',
+  Conversar: '💬',
+  Calls: '🎙️',
+  Livros: '📚',
+  Arte: '🎨',
+  Memes: '😂',
   'Filmes e Séries': '🎬',
   Música: '🎵',
   'Call e Conversa': '🎙️'
@@ -111,8 +123,8 @@ export function parseLookingFor(rawValue: string): LookingForOption[] {
     unique.add(option);
   }
 
-  if (unique.size === 0) {
-    throw new Error('Informe pelo menos uma opção em "o que procura".');
+  if (unique.size > MAX_PROFILE_INTERESTS) {
+    throw new Error(`Selecione no máximo ${MAX_PROFILE_INTERESTS} interesses.`);
   }
 
   return [...unique];
@@ -174,14 +186,15 @@ export function parseReceiveDm(rawValue: string): boolean {
 }
 
 export function parseAge(rawValue: string): number {
-  const age = Number.parseInt(rawValue.trim(), 10);
-
-  if (!Number.isInteger(age)) {
-    throw new Error('Idade deve ser um número inteiro.');
+  const normalizedAge = rawValue.trim();
+  if (!/^\+?\d+$/.test(normalizedAge)) {
+    throw new Error('Informe sua idade usando apenas números. Exemplos: 18, 25 ou 31.');
   }
 
+  const age = Number.parseInt(normalizedAge.replace(/^\+/, ''), 10);
+
   if (age < PROFILE_MIN_AGE) {
-    throw new Error('O SUÍNDER V1 é restrito para pessoas com 18 anos ou mais.');
+    throw new Error('Você precisa ter 18 anos ou mais para participar do SUÍNDER.');
   }
 
   return age;

@@ -229,11 +229,11 @@ Status de perfil:
 Campos do perfil:
 
 - Apelido, limitado a 80 caracteres.
-- Idade obrigatória, bloqueando valores menores que 18.
+- Idade obrigatória: qualquer número inteiro **18+** é válido, com ou sem sinal de `+` (por exemplo, `18`, `+18`, `25`, `31` ou `45`); valores menores que 18 são bloqueados.
 - Bio curta, limitada a 500 caracteres.
 - O modal de criação/edição coleta apenas apelido, idade e bio para reduzir erros de cadastro.
-- O que procura continua salvo com as categorias V1 (`Romance`, `Amizades`, `Jogos`, `Filmes e Séries`, `Música`, `Call e Conversa`) e permanece validado pelo domínio.
-- Aceite dos Termos de Participação como consentimento +18 obrigatório; o modal não exige digitar uma confirmação +18 separada.
+- Interesses configurados pelo botão **✨ Interesses**, com seleção múltipla guiada de até 5 opções entre `Jogos`, `Filmes e Séries`, `Música`, `Conversar`, `Livros`, `Romance`, `Amizade`, `Calls`, `Arte` e `Memes`.
+- Aceite dos Termos de Participação como consentimento +18 obrigatório, com banner visual próprio; o modal não exige digitar uma confirmação +18 separada.
 - A DM é obrigatória e validada pelo bot antes de criar ou reativar perfil, sem campo manual de “DM: Sim/Não”.
 - Avatar atual do Discord como foto padrão, sem upload de imagem.
 
@@ -255,7 +255,7 @@ Se a DM falhar, o perfil não é criado/reativado naquele momento e a descoberta
 
 ## Descoberta V1 com descarte, segurança, curtida e match
 
-O comando `/suinder descobrir` mostra um perfil elegível por vez em mensagem efêmera. Ele aceita o filtro opcional de sessão `filtro` com **Todos**, **Romance**, **Amizades**, **Jogos**, **Filmes e Séries**, **Música** ou **Call e Conversa**. Esse filtro só vale para a sessão atual, não altera o perfil salvo e também é preservado nos botões efêmeros do card. O card exibe apenas apelido, idade, bio, interesses, avatar do Discord e uma porcentagem de compatibilidade calculada localmente por regras, sem IA e sem APIs externas.
+O comando `/suinder descobrir` mostra um perfil elegível por vez em mensagem efêmera. Ele aceita o filtro opcional de sessão `filtro` com **Todos**, **Jogos**, **Filmes e Séries**, **Música**, **Conversar**, **Livros**, **Romance**, **Amizade**, **Calls**, **Arte** ou **Memes**. Esse filtro só vale para a sessão atual, não altera o perfil salvo e também é preservado nos botões efêmeros do card. O card exibe apenas apelido, idade, bio, interesses, avatar do Discord e uma porcentagem de compatibilidade calculada localmente por regras, sem IA e sem APIs externas.
 
 A query de descoberta exclui:
 
@@ -266,7 +266,7 @@ A query de descoberta exclui:
 - Perfis bloqueados pelo usuário ou que bloquearam o usuário.
 - Perfis que o usuário marcou como `pass` em `profile_actions` enquanto o descarte temporário ainda está válido.
 
-As perguntas rápidas opcionais do perfil são configuradas por menus guiados no botão **✨ Compatibilidade** do painel de perfil: **Call ou Chat**, **Dia ou Noite**, **Grupo ou Conversa Individual**, **Jogos ou Filmes** e **Planejar ou Improvisar**. O usuário não precisa digitar preferências em texto livre. Se nenhuma pergunta for selecionada, o perfil continua funcionando e a compatibilidade usa apenas interesses. A compatibilidade combina interesses em comum com peso maior e respostas iguais com peso médio, exibindo os principais pontos em comum sem alterar regras de descoberta, bloqueio, limites de likes ou Super Like.
+Os interesses do perfil também são configurados por menu guiado e são usados diretamente na descoberta, filtros e compatibilidade. As perguntas rápidas opcionais do perfil são configuradas por menus guiados no botão **✨ Compatibilidade** do painel de perfil: **Call ou Chat**, **Dia ou Noite**, **Grupo ou Conversa Individual**, **Jogos ou Filmes** e **Planejar ou Improvisar**. O usuário não precisa digitar preferências em texto livre. Se nenhuma pergunta for selecionada, o perfil continua funcionando e a compatibilidade usa apenas interesses. A compatibilidade combina interesses em comum com peso maior e respostas iguais com peso médio, exibindo os principais pontos em comum sem alterar regras de descoberta, bloqueio, limites de likes ou Super Like.
 
 O botão `Curtir` registra `like` em `profile_actions` sem gerar log administrativo individual. Curtidas comuns consomem o limite diário por `guild_id` + usuário definido em `guild_settings.daily_like_limit`, com padrão de 30 por dia; Super Likes não contam nesse limite. Se houver curtida recíproca, o sistema cria um match `active` único dentro de transação, registra apenas o evento `match.created` nos logs administrativos e tenta enviar DM para as duas pessoas; falhas de DM são tratadas como best-effort e não quebram o fluxo efêmero.
 

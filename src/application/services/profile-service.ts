@@ -378,6 +378,21 @@ export class ProfileService {
     return profile;
   }
 
+  public async updateProfileInterests(guildId: string, discordUserId: string, rawInterests: string): Promise<UserProfile> {
+    const profile = await this.profiles.findByDiscordUser(guildId, discordUserId);
+    if (!profile) {
+      throw new Error('Você precisa criar um perfil antes de configurar interesses.');
+    }
+
+    this.ensureCurrentTerms(profile);
+
+    if (profile.status === 'deleted' || profile.status === 'suspended' || profile.status === 'banned') {
+      throw new Error('Seu perfil não está disponível para configurar interesses.');
+    }
+
+    return this.profiles.updateLookingFor(guildId, profile.id, parseLookingFor(rawInterests));
+  }
+
   public async updateCompatibilityAnswer(
     guildId: string,
     discordUserId: string,

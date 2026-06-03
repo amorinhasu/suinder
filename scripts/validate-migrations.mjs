@@ -57,6 +57,13 @@ const requiredProfileV1Fields = [
   'add column if not exists terms_accepted_at',
   'add column if not exists terms_version',
   'idx_user_profiles_terms',
+  'conversar',
+  'livros',
+  'amizade',
+  'calls',
+  'memes',
+  'cardinality(looking_for) <= 5',
+  'limit 5',
 ];
 
 const forbiddenProductionOperations = [
