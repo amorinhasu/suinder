@@ -554,6 +554,8 @@ Perguntas rápidas opcionais armazenadas no perfil:
 - Jogos ou Filmes.
 - Planejar ou Improvisar.
 
+As respostas são capturadas por menus guiados do Discord no painel de perfil, não por texto livre em modal. Se o usuário não selecionar nenhuma pergunta, o perfil continua válido e a compatibilidade usa apenas interesses.
+
 O cálculo usa apenas regras locais: interesses compartilhados têm peso maior e respostas iguais têm peso médio. O resultado é limitado entre 0% e 100% e exibido apenas durante a descoberta com os principais pontos em comum. Não há IA, API externa, alteração de regras de descoberta, alteração de bloqueios, alteração de limites de likes ou alteração de Super Like.
 
 ### 11.3 Curtir e match

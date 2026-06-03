@@ -118,6 +118,16 @@ export function parseLookingFor(rawValue: string): LookingForOption[] {
   return [...unique];
 }
 
+export function validateCompatibilityAnswer(questionKey: CompatibilityQuestionKey, answer: string): string {
+  const normalizedAnswer = compatibilityOptionsByQuestion.get(questionKey)?.get(normalizeOption(answer));
+  if (!normalizedAnswer) {
+    const question = COMPATIBILITY_QUESTIONS.find((item) => item.key === questionKey);
+    throw new Error(`Resposta inválida para "${question?.label ?? questionKey}": ${answer}`);
+  }
+
+  return normalizedAnswer;
+}
+
 export function parseCompatibilityAnswers(rawValue: string): CompatibilityAnswers {
   const answers: CompatibilityAnswers = {};
   const segments = rawValue

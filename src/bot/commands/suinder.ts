@@ -6,11 +6,13 @@ import {
   EmbedBuilder,
   ModalBuilder,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
   userMention,
   type ButtonInteraction,
-  type ModalSubmitInteraction
+  type ModalSubmitInteraction,
+  type StringSelectMenuInteraction
 } from 'discord.js';
 import type { AppContext } from '../../application/context.js';
 import type { MatchSummary, RawProfileFormInput } from '../../application/services/profile-service.js';
@@ -19,6 +21,7 @@ import {
   CURRENT_TERMS_VERSION,
   LOOKING_FOR_OPTIONS,
   type CompatibilityAnswers,
+  type CompatibilityQuestionKey,
   type LookingForOption,
   PROFILE_BIO_MAX_LENGTH,
   PROFILE_NICKNAME_MAX_LENGTH,
@@ -36,8 +39,10 @@ const PROFILE_EDIT_BUTTON_ID = 'suinder:profile:edit';
 const PROFILE_PAUSE_BUTTON_ID = 'suinder:profile:pause';
 const PROFILE_REACTIVATE_BUTTON_ID = 'suinder:profile:reactivate';
 const PROFILE_DELETE_BUTTON_ID = 'suinder:profile:delete';
+const PROFILE_COMPATIBILITY_BUTTON_ID = 'suinder:profile:compatibility';
 const PROFILE_CREATE_MODAL_ID = 'suinder:profile:create-modal';
 const PROFILE_EDIT_MODAL_ID = 'suinder:profile:edit-modal';
+const COMPATIBILITY_SELECT_PREFIX = 'suinder:compatibility';
 const DISCOVERY_REPORT_MODAL_PREFIX = 'suinder:discover-report';
 const MATCH_REPORT_MODAL_PREFIX = 'suinder:match-report';
 const DM_TEST_BUTTON_ID = 'suinder:dm:test';
@@ -63,7 +68,7 @@ const reportCategories = [
 ] as const;
 
 async function ensureConfiguredGuild(
-  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
+  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction,
   context: AppContext
 ): Promise<boolean> {
   if (!interaction.inCachedGuild()) {
@@ -295,6 +300,16 @@ export async function handleSuinderButton(interaction: ButtonInteraction, contex
     return true;
   }
 
+  if (interaction.customId === PROFILE_COMPATIBILITY_BUTTON_ID) {
+    await interaction.reply({
+      content: '✨ Escolha suas preferências rápidas. Elas são opcionais e podem ser alteradas a qualquer momento.',
+      embeds: [buildProfilePanelEmbed(profile)],
+      components: buildCompatibilitySelectRows(profile),
+      ephemeral: true
+    });
+    return true;
+  }
+
   if (interaction.customId === PROFILE_PAUSE_BUTTON_ID) {
     const updatedProfile = await context.profiles.pauseProfile(profile);
     await interaction.update({ embeds: [buildProfilePanelEmbed(updatedProfile)], components: buildProfileActionRows(updatedProfile) });
@@ -324,7 +339,44 @@ export async function handleSuinderButton(interaction: ButtonInteraction, contex
   return false;
 }
 
+export async function handleSuinderSelectMenu(interaction: StringSelectMenuInteraction, context: AppContext): Promise<boolean> {
+  if (!interaction.customId.startsWith(`${COMPATIBILITY_SELECT_PREFIX}:`)) {
+    return false;
+  }
 
+  if (!(await ensureConfiguredGuild(interaction, context))) {
+    return true;
+  }
+
+  const questionKey = parseCompatibilitySelectId(interaction.customId);
+  const selectedAnswer = interaction.values[0];
+  if (!questionKey || !selectedAnswer) {
+    await interaction.reply({ content: '⚠️ Preferência de compatibilidade inválida. Abra o painel de perfil novamente.', ephemeral: true });
+    return true;
+  }
+
+  try {
+    const profile = await context.profiles.updateCompatibilityAnswer(
+      interaction.guildId ?? context.config.DISCORD_GUILD_ID,
+      interaction.user.id,
+      questionKey,
+      selectedAnswer
+    );
+
+    await interaction.update({
+      content: '✨ Preferências de compatibilidade atualizadas. Você pode ajustar outras opções abaixo.',
+      embeds: [buildProfilePanelEmbed(profile)],
+      components: buildCompatibilitySelectRows(profile)
+    });
+  } catch (error) {
+    await interaction.reply({
+      content: `⚠️ Não foi possível atualizar suas preferências: ${error instanceof Error ? error.message : String(error)}`,
+      ephemeral: true
+    });
+  }
+
+  return true;
+}
 
 
 async function handleTermsButton(interaction: ButtonInteraction, context: AppContext): Promise<void> {
@@ -386,7 +438,7 @@ async function handleDmTestButton(interaction: ButtonInteraction, context: AppCo
 }
 
 async function ensureDmCapability(
-  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
+  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction,
   context: AppContext
 ): Promise<boolean> {
   try {
@@ -405,7 +457,7 @@ async function ensureDmCapability(
 }
 
 async function replyDmVerificationFailed(
-  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction
+  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction
 ): Promise<void> {
   const response = {
     content: buildDmVerificationFailureMessage(),
@@ -545,21 +597,11 @@ export async function handleSuinderModalSubmit(interaction: ModalSubmitInteracti
     return true;
   }
 
-  const dmAndConsent = splitReceiveDmAndCompatibility(interaction.fields.getTextInputValue('receive_dm'));
-  const input = {
-    guildId: interaction.guildId ?? context.config.DISCORD_GUILD_ID,
-    discordUserId: interaction.user.id,
-    avatarUrl: interaction.user.displayAvatarURL({ size: 256 }),
-    displayName: interaction.fields.getTextInputValue('display_name'),
-    age: interaction.fields.getTextInputValue('age'),
-    bio: interaction.fields.getTextInputValue('bio'),
-    lookingFor: interaction.fields.getTextInputValue('looking_for'),
-    compatibilityAnswers: dmAndConsent.compatibilityAnswers,
-    receiveDm: dmAndConsent.receiveDm,
-    adultConsent: dmAndConsent.adultConsent,
-    termsAcceptedAt: hasPendingTermsAcceptance(interaction.guildId ?? context.config.DISCORD_GUILD_ID, interaction.user.id) ? new Date() : undefined,
-    termsVersion: hasPendingTermsAcceptance(interaction.guildId ?? context.config.DISCORD_GUILD_ID, interaction.user.id) ? CURRENT_TERMS_VERSION : undefined
-  };
+  const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
+  const existingProfile = interaction.customId === PROFILE_EDIT_MODAL_ID
+    ? await context.profiles.getProfile(guildId, interaction.user.id)
+    : null;
+  const input = buildProfileFormInput(interaction, guildId, existingProfile);
 
   try {
     if (interaction.customId === PROFILE_CREATE_MODAL_ID && !await ensureDmCapability(interaction, context)) {
@@ -603,6 +645,27 @@ async function updateExistingProfile(
   }
 
   return context.profiles.updateProfile(profile.id, input);
+}
+
+function buildProfileFormInput(
+  interaction: ModalSubmitInteraction,
+  guildId: string,
+  existingProfile: UserProfile | null
+): RawProfileFormInput {
+  return {
+    guildId,
+    discordUserId: interaction.user.id,
+    avatarUrl: interaction.user.displayAvatarURL({ size: 256 }),
+    displayName: interaction.fields.getTextInputValue('display_name'),
+    age: interaction.fields.getTextInputValue('age'),
+    bio: interaction.fields.getTextInputValue('bio'),
+    lookingFor: existingProfile ? existingProfile.lookingFor.join(', ') : LOOKING_FOR_OPTIONS.join(', '),
+    compatibilityAnswers: existingProfile ? serializeCompatibilityAnswers(existingProfile.compatibilityAnswers) : '',
+    receiveDm: 'Sim',
+    adultConsent: 'Sim',
+    termsAcceptedAt: hasPendingTermsAcceptance(guildId, interaction.user.id) ? new Date() : undefined,
+    termsVersion: hasPendingTermsAcceptance(guildId, interaction.user.id) ? CURRENT_TERMS_VERSION : undefined
+  };
 }
 
 async function showProfilePanel(interaction: SuinderUserInteraction, context: AppContext): Promise<void> {
@@ -1500,6 +1563,10 @@ function buildProfileActionRows(profile: UserProfile): ActionRowBuilder<ButtonBu
         .setCustomId(PROFILE_EDIT_BUTTON_ID)
         .setLabel('Editar')
         .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(PROFILE_COMPATIBILITY_BUTTON_ID)
+        .setLabel('✨ Compatibilidade')
+        .setStyle(ButtonStyle.Success),
       pauseOrReactivateButton,
       new ButtonBuilder()
         .setCustomId(PROFILE_DELETE_BUTTON_ID)
@@ -1539,24 +1606,6 @@ function buildProfileModal(mode: 'create' | 'edit', profile?: UserProfile): Moda
           .setMaxLength(PROFILE_BIO_MAX_LENGTH)
           .setRequired(true)
           .setValue(profile?.bio ?? '')
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId('looking_for')
-          .setLabel('O que procura? Separe por vírgulas')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder(LOOKING_FOR_OPTIONS.join(', '))
-          .setRequired(true)
-          .setValue(profile?.lookingFor.join(', ') ?? '')
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId('receive_dm')
-          .setLabel('DM e preferências opcionais')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('DM: Sim; Call ou Chat: Call; Dia ou Noite: Noite')
-          .setRequired(true)
-          .setValue(profile ? formatReceiveDmAndCompatibility(profile.receiveDm, profile.compatibilityAnswers) : '')
       )
     );
 }
@@ -1574,23 +1623,35 @@ function formatStatus(status: UserProfile['status']): string {
   return labels[status];
 }
 
-function splitReceiveDmAndCompatibility(rawValue: string): { receiveDm: string; adultConsent: string; compatibilityAnswers: string } {
-  const parts = rawValue.split(';').map((value) => value.trim()).filter(Boolean);
-  const receiveDmPart = parts.find((value) => /^dm\s*:/i.test(value)) ?? parts[0] ?? '';
-
-  return {
-    receiveDm: receiveDmPart.replace(/^dm\s*:/i, '').trim(),
-    adultConsent: 'Sim',
-    compatibilityAnswers: rawValue
-  };
+function buildCompatibilitySelectRows(profile: UserProfile): ActionRowBuilder<StringSelectMenuBuilder>[] {
+  return COMPATIBILITY_QUESTIONS.map((question) => (
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`${COMPATIBILITY_SELECT_PREFIX}:${question.key}`)
+        .setPlaceholder(question.label)
+        .addOptions(question.options.map((option) => ({
+          label: option === 'Conversa Individual' ? 'Individual' : option,
+          value: option,
+          default: profile.compatibilityAnswers[question.key] === option
+        })))
+    )
+  ));
 }
 
-function formatReceiveDmAndCompatibility(receiveDm: boolean, answers: CompatibilityAnswers): string {
-  const answerParts = COMPATIBILITY_QUESTIONS
-    .map((question) => answers[question.key] ? `${question.label}: ${answers[question.key]}` : undefined)
-    .filter(Boolean);
+function parseCompatibilitySelectId(customId: string): CompatibilityQuestionKey | null {
+  const [, scope, key] = customId.split(':');
+  const question = scope === 'compatibility'
+    ? COMPATIBILITY_QUESTIONS.find((item) => item.key === key)
+    : undefined;
 
-  return [`DM: ${receiveDm ? 'Sim' : 'Não'}`, ...answerParts].join('; ');
+  return question?.key ?? null;
+}
+
+function serializeCompatibilityAnswers(answers: CompatibilityAnswers): string {
+  return COMPATIBILITY_QUESTIONS
+    .map((question) => answers[question.key] ? `${question.label}: ${answers[question.key]}` : undefined)
+    .filter(Boolean)
+    .join('; ');
 }
 
 function formatCompatibilityAnswers(answers: CompatibilityAnswers): string {
@@ -1614,7 +1675,7 @@ function formatCompatibility(profile: UserProfile): string {
 }
 
 async function replyEphemeral(
-  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
+  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction,
   content: string
 ): Promise<void> {
   if (interaction.replied || interaction.deferred) {

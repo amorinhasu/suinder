@@ -23,6 +23,7 @@ async function main() {
     'Jogos ou Filmes',
     'Planejar ou Improvisar',
     'parseCompatibilityAnswers',
+    'validateCompatibilityAnswer',
     'calculateCompatibility',
     'interestScore',
     'answerScore',
@@ -37,6 +38,7 @@ async function main() {
     'user_profiles_compatibility_answers_object',
     'compatibility_answers = excluded.compatibility_answers',
     'compatibility_answers = $6::jsonb',
+    'updateCompatibilityAnswers(guildId: string, profileId: string, answers: CompatibilityAnswers)',
     'JSON.stringify(input.compatibilityAnswers)',
     'compatibilityAnswers: row.compatibility_answers ?? {}'
   ];
@@ -48,24 +50,32 @@ async function main() {
     'parseCompatibilityAnswers(input.compatibilityAnswers)',
     'withCompatibility(viewerProfile',
     'compatibility: calculateCompatibility(viewerProfile, targetProfile)',
-    'findNextDiscoverableProfile(guildId, viewerProfile.id, filter)'
+    'findNextDiscoverableProfile(guildId, viewerProfile.id, filter)',
+    'updateCompatibilityAnswer(',
+    'validateCompatibilityAnswer(questionKey, answer)'
   ];
   for (const piece of servicePieces) {
     assert(service.includes(piece), `Compatibility service missing: ${piece}`);
   }
 
   const commandPieces = [
-    'DM e preferências opcionais',
+    'StringSelectMenuBuilder',
+    'COMPATIBILITY_SELECT_PREFIX',
+    'buildCompatibilitySelectRows(profile)',
+    'handleSuinderSelectMenu',
+    'PROFILE_COMPATIBILITY_BUTTON_ID',
+    '✨ Compatibilidade',
     'formatCompatibility(profile)',
     '💚 Compatibilidade:',
     'Vocês combinam em:',
     'formatCompatibilityAnswers(profile.compatibilityAnswers)',
-    'compatibilityAnswers: dmAndConsent.compatibilityAnswers'
+    'serializeCompatibilityAnswers(existingProfile.compatibilityAnswers)'
   ];
   for (const piece of commandPieces) {
     assert(command.includes(piece), `Compatibility command missing: ${piece}`);
   }
 
+  assert(!command.includes('DM e preferências opcionais'), 'Compatibility preferences must not be collected as free-form modal text');
   assert(!domain.includes('openai') && !service.includes('openai') && !command.includes('openai'), 'Compatibility must not use AI/OpenAI APIs');
   assert(!domain.includes('fetch(') && !service.includes('fetch('), 'Compatibility must not call external APIs');
   assert(pkg.includes('compatibility:check') && pkg.includes('compatibilidade:check'), 'package.json must expose compatibility checks');

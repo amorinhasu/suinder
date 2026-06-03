@@ -2,7 +2,7 @@ import { Client, Collection, Events, GatewayIntentBits, type ChatInputCommandInt
 import type { AppContext } from '../application/context.js';
 import type { AppConfig } from '../infrastructure/config.js';
 import type { Logger } from '../infrastructure/logger.js';
-import { handleSuinderButton, handleSuinderModalSubmit } from './commands/suinder.js';
+import { handleSuinderButton, handleSuinderModalSubmit, handleSuinderSelectMenu } from './commands/suinder.js';
 import type { SlashCommand } from './commands/types.js';
 
 export interface SuinderClient extends Client {
@@ -54,6 +54,32 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
 
         await interaction.reply({
           content: 'Este botão não está mais disponível. Use `/suinder iniciar` ou o painel mais recente do SUÍNDER.',
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (interaction.isStringSelectMenu()) {
+        context.logger.info('String select interaction received', {
+          customId: interaction.customId,
+          discordUserId: interaction.user.id,
+          guildId: interaction.guildId
+        });
+
+        const handled = await handleSuinderSelectMenu(interaction, context);
+        context.logger.info('String select interaction routed', {
+          customId: interaction.customId,
+          discordUserId: interaction.user.id,
+          guildId: interaction.guildId,
+          handled
+        });
+
+        if (handled) {
+          return;
+        }
+
+        await interaction.reply({
+          content: 'Este menu não está mais disponível. Use `/suinder perfil` para abrir o painel mais recente.',
           ephemeral: true
         });
         return;

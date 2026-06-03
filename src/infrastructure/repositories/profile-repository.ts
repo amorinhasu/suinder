@@ -201,6 +201,29 @@ export class ProfileRepository {
     return mapProfileRow(profile);
   }
 
+  public async updateCompatibilityAnswers(guildId: string, profileId: string, answers: CompatibilityAnswers): Promise<UserProfile> {
+    const result = await this.database.query<ProfileRow>(
+      `
+        update user_profiles
+        set compatibility_answers = $3::jsonb,
+            updated_at = now()
+        where guild_id = $1
+          and id = $2
+          and status <> 'deleted'
+          and status not in ('suspended', 'banned')
+        returning *
+      `,
+      [guildId, profileId, JSON.stringify(answers)]
+    );
+
+    const profile = result.rows[0];
+    if (!profile) {
+      throw new Error('Perfil não encontrado ou indisponível para edição de compatibilidade.');
+    }
+
+    return mapProfileRow(profile);
+  }
+
   public async setStatus(guildId: string, profileId: string, status: ProfileStatus): Promise<UserProfile> {
     const pausedAtExpression = status === 'paused' || status === 'suspended' ? 'now()' : 'null';
     const result = await this.database.query<ProfileRow>(

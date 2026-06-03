@@ -73,7 +73,7 @@ async function main() {
     assert(command.includes(piece), `Terms command missing: ${piece}`);
   }
 
-  assert(command.includes('DM e preferências opcionais') && !command.includes('DM, +18 e preferências'), 'Profile modal must not require manual +18 consent after terms');
+  assert(command.includes("adultConsent: 'Sim'") && !command.includes('DM e preferências opcionais') && !command.includes('DM, +18 e preferências'), 'Profile modal must derive +18/DM consent from accepted terms and not ask for free-form consent text');
   assert(client.includes('Button interaction received') && client.includes('Button interaction routed'), 'Button dispatcher must log receipt and routing');
   assert(client.includes('Este botão não está mais disponível'), 'Button dispatcher must respond to unknown buttons');
   assert(pkg.includes('terms:check') && pkg.includes('validate-terms.mjs'), 'package.json must expose terms:check');

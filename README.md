@@ -231,9 +231,10 @@ Campos do perfil:
 - Apelido, limitado a 80 caracteres.
 - Idade obrigatória, bloqueando valores menores que 18.
 - Bio curta, limitada a 500 caracteres.
-- O que procura: `Romance`, `Amizades`, `Jogos`, `Filmes e Séries`, `Música`, `Call e Conversa`.
+- O modal de criação/edição coleta apenas apelido, idade e bio para reduzir erros de cadastro.
+- O que procura continua salvo com as categorias V1 (`Romance`, `Amizades`, `Jogos`, `Filmes e Séries`, `Música`, `Call e Conversa`) e permanece validado pelo domínio.
 - Aceite dos Termos de Participação como consentimento +18 obrigatório; o modal não exige digitar uma confirmação +18 separada.
-- Preferência de receber DM: sim ou não.
+- A DM é obrigatória e validada pelo bot antes de criar ou reativar perfil, sem campo manual de “DM: Sim/Não”.
 - Avatar atual do Discord como foto padrão, sem upload de imagem.
 
 A configuração `guild_settings.profile_review_required` controla se novos perfis ficam `active` imediatamente ou `pending_review` como pendentes de revisão.
@@ -265,7 +266,7 @@ A query de descoberta exclui:
 - Perfis bloqueados pelo usuário ou que bloquearam o usuário.
 - Perfis que o usuário marcou como `pass` em `profile_actions` enquanto o descarte temporário ainda está válido.
 
-As perguntas rápidas opcionais do perfil são **Call ou Chat**, **Dia ou Noite**, **Grupo ou Conversa Individual**, **Jogos ou Filmes** e **Planejar ou Improvisar**. A compatibilidade combina interesses em comum com peso maior e respostas iguais com peso médio, exibindo os principais pontos em comum sem alterar regras de descoberta, bloqueio, limites de likes ou Super Like.
+As perguntas rápidas opcionais do perfil são configuradas por menus guiados no botão **✨ Compatibilidade** do painel de perfil: **Call ou Chat**, **Dia ou Noite**, **Grupo ou Conversa Individual**, **Jogos ou Filmes** e **Planejar ou Improvisar**. O usuário não precisa digitar preferências em texto livre. Se nenhuma pergunta for selecionada, o perfil continua funcionando e a compatibilidade usa apenas interesses. A compatibilidade combina interesses em comum com peso maior e respostas iguais com peso médio, exibindo os principais pontos em comum sem alterar regras de descoberta, bloqueio, limites de likes ou Super Like.
 
 O botão `Curtir` registra `like` em `profile_actions` sem gerar log administrativo individual. Curtidas comuns consomem o limite diário por `guild_id` + usuário definido em `guild_settings.daily_like_limit`, com padrão de 30 por dia; Super Likes não contam nesse limite. Se houver curtida recíproca, o sistema cria um match `active` único dentro de transação, registra apenas o evento `match.created` nos logs administrativos e tenta enviar DM para as duas pessoas; falhas de DM são tratadas como best-effort e não quebram o fluxo efêmero.
 

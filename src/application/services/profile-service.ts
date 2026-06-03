@@ -7,9 +7,11 @@ import {
   parseLookingFor,
   parseReceiveDm,
   validateBio,
+  validateCompatibilityAnswer,
   validateNickname,
   type LookingForOption,
   type CompatibilityAnswers,
+  type CompatibilityQuestionKey,
   type ProfileInput,
   type UserProfile
 } from '../../domain/profile.js';
@@ -374,6 +376,31 @@ export class ProfileService {
     });
 
     return profile;
+  }
+
+  public async updateCompatibilityAnswer(
+    guildId: string,
+    discordUserId: string,
+    questionKey: CompatibilityQuestionKey,
+    answer: string
+  ): Promise<UserProfile> {
+    const profile = await this.profiles.findByDiscordUser(guildId, discordUserId);
+    if (!profile) {
+      throw new Error('Você precisa criar um perfil antes de configurar compatibilidade.');
+    }
+
+    this.ensureCurrentTerms(profile);
+
+    if (profile.status === 'deleted' || profile.status === 'suspended' || profile.status === 'banned') {
+      throw new Error('Seu perfil não está disponível para configurar compatibilidade.');
+    }
+
+    const nextAnswers: CompatibilityAnswers = {
+      ...profile.compatibilityAnswers,
+      [questionKey]: validateCompatibilityAnswer(questionKey, answer)
+    };
+
+    return this.profiles.updateCompatibilityAnswers(guildId, profile.id, nextAnswers);
   }
 
   public async pauseProfile(profile: UserProfile): Promise<UserProfile> {
