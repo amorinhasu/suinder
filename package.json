@@ -24,13 +24,13 @@
     "discord.js": "^14.19.3",
     "dotenv": "^16.5.0",
     "pg": "^8.16.0",
-    "zod": "^3.25.49"
-  },
-  "devDependencies": {
+    "zod": "^3.25.49",
     "@types/node": "^22.15.29",
     "@types/pg": "^8.15.4",
-    "tsx": "^4.19.4",
     "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -116,29 +116,56 @@ Ao iniciar, o bot valida a conexão com o banco, registra os slash commands na g
 
 ## Deploy em produção (Square Cloud / hospedagens Node.js)
 
-Use Node.js 20 ou superior. O projeto está configurado para rodar o JavaScript compilado, não `tsx`, em produção:
+Use Node.js 20 ou superior. O projeto foi ajustado para o cenário em que o GitHub/zip contém o código TypeScript (`src/main.ts`) mas não contém `dist/`.
 
-- Arquivo principal real: `dist/main.js`.
-- Comando de build: `npm run build`.
-- Comando de migração após o build: `npm run migrate`.
-- Comando de start: `npm start`.
-- Configuração Square Cloud incluída: `squarecloud.app`, com `MAIN=dist/main.js` e `START=npm start`.
-- `dist/` não existe no repositório por padrão porque é artefato de build ignorado pelo Git.
-- O start não compila TypeScript; portanto, a hospedagem precisa executar `npm run build` antes de `npm start` ou receber um pacote já compilado.
-- Se for enviar um `.zip` para a Square Cloud com o `squarecloud.app` deste repositório, gere `dist/` antes de compactar para que `dist/main.js` exista no pacote.
+### Square Cloud usando este repositório sem `dist/`
 
-Sequência recomendada de deploy:
+Selecione ou mantenha como **Arquivo Principal**:
+
+```text
+src/main.ts
+```
+
+Não selecione `dist/main.js` se a pasta `dist/` não existir no GitHub ou no zip enviado, porque a Square Cloud valida se o arquivo principal existe. O arquivo `src/main.ts` existe no repositório e serve como referência de projeto TypeScript; o comando customizado de start compila e depois roda o JavaScript gerado.
+
+O `squarecloud.app` deste repositório está configurado assim:
+
+```text
+MAIN=src/main.ts
+START=npm run build && npm run migrate && npm start
+```
+
+Essa configuração faz a Square Cloud executar a sequência abaixo no start:
+
+1. `npm run build`: compila TypeScript para `dist/`.
+2. `npm run migrate`: aplica migrações usando `dist/infrastructure/database/migrate.js`.
+3. `npm start`: inicia o bot com `node dist/main.js`.
+
+Por isso, o **entrypoint real em runtime** continua sendo `dist/main.js`, mas o **Arquivo Principal para deploy sem `dist/`** deve ser `src/main.ts`.
+
+### Quando usar `dist/main.js`
+
+Use `dist/main.js` como Arquivo Principal apenas se você gerar o build antes e enviar um zip que já contenha `dist/main.js`.
+
+Build local para gerar `dist/`:
 
 ```bash
 npm install
 npm run build
-npm run migrate
-npm start
 ```
 
-Para upload manual na Square Cloud, compacte pelo menos `squarecloud.app`, `package.json`, `.npmrc`, `migrations/`, `dist/` e demais arquivos necessários de runtime após o build. Não envie `.env` com segredos no zip; configure as variáveis no painel da hospedagem.
+Depois disso, o zip precisa incluir pelo menos `squarecloud.app`, `package.json`, `.npmrc`, `migrations/`, `dist/` e demais arquivos necessários de runtime. Não envie `.env` com segredos no zip; configure as variáveis no painel da hospedagem.
 
-Se a hospedagem instalar apenas dependências de produção (`npm install --omit=dev`), faça o build antes dessa etapa ou garanta uma fase de build com `devDependencies`, pois `typescript` é necessário para compilar mas não é dependência de runtime. Depois de compilado, o runtime usa apenas `discord.js`, `dotenv`, `pg` e `zod`.
+### Comandos finais
+
+- Arquivo principal no deploy sem `dist/`: `src/main.ts`.
+- Arquivo real executado após build: `dist/main.js`.
+- Build command: `npm run build`.
+- Migration command: `npm run migrate`.
+- Start command: `npm start`.
+- Start command completo para Square Cloud: `npm run build && npm run migrate && npm start`.
+
+Como a Square Cloud pode instalar dependências em modo de produção, `typescript`, `@types/node` e `@types/pg` ficam em `dependencies` para permitir o build na nuvem. O `tsx` permanece em `devDependencies`, porque só é usado em desenvolvimento por `npm run dev` e `npm run migrate:dev`.
 
 Variáveis de ambiente obrigatórias:
 
@@ -155,7 +182,7 @@ Variáveis opcionais ou com padrão:
 - `NODE_ENV`: use `production` em deploy.
 - `LOG_LEVEL`: padrão recomendado `info`.
 
-Antes de iniciar o bot pela primeira vez em uma nova base, rode `npm run migrate` após o build. O comando de migração de produção usa `node dist/infrastructure/database/migrate.js`, evitando depender de `tsx` no runtime.
+No `squarecloud.app` atual, `npm run migrate` já faz parte do `START` depois do build. Se você optar por iniciar manualmente com apenas `npm start`, rode `npm run migrate` antes. O comando de migração de produção usa `node dist/infrastructure/database/migrate.js`, evitando depender de `tsx` no runtime.
 
 ## Scripts
 
