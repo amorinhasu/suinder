@@ -28,7 +28,7 @@ import {
   buildPublicPanelActionRows,
   parsePublicPanelButtonId
 } from '../public-panel.js';
-import { applyVisualBanner } from '../visual-assets.js';
+import { SUINDER_EMBED_COLOR, applyVisualBanner } from '../visual-assets.js';
 import type { SlashCommand } from './types.js';
 
 const PROFILE_CREATE_BUTTON_ID = 'suinder:profile:create';
@@ -348,10 +348,6 @@ async function handleTermsButton(interaction: ButtonInteraction, context: AppCon
       embeds: [buildProfilePanelEmbed(profile)],
       components: buildProfileActionRows(profile)
     });
-    return;
-  }
-
-  if (!await ensureDmCapability(interaction, context)) {
     return;
   }
 
@@ -704,7 +700,7 @@ function buildNoMatchesEmbed(): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Sem matches ativos no SUÍNDER')
     .setDescription('Quando uma curtida for recíproca, o match aparecerá aqui. Matches bloqueados, deletados ou encerrados não são exibidos.')
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_MATCHES');
 }
@@ -712,7 +708,7 @@ function buildNoMatchesEmbed(): EmbedBuilder {
 function buildMatchesEmbed(matches: MatchSummary[]): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Matches ativos do SUÍNDER')
-    .setColor(0xff5c8a)
+    .setColor(SUINDER_EMBED_COLOR)
     .setDescription('Use as ações abaixo para ver perfil, desfazer match, bloquear ou denunciar. Segurança: respeite consentimento e limites.');
 
   for (const [index, match] of matches.entries()) {
@@ -743,7 +739,7 @@ function buildMatchProfileEmbed(match: MatchSummary): EmbedBuilder {
       { name: 'Status do match', value: formatMatchStatus(match.status), inline: true },
       { name: 'Segurança', value: 'Este perfil é exibido de forma efêmera. Use bloquear/denunciar se algo parecer inadequado.', inline: false }
     )
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   if (profile.avatarUrl) {
     embed.setThumbnail(profile.avatarUrl);
@@ -783,22 +779,30 @@ function buildPublicPanelHelpEmbed(): EmbedBuilder {
       'Use **Pausar/Reativar Perfil** para controlar sua visibilidade na descoberta.',
       'Você também pode usar os slash commands `/suinder perfil`, `/suinder descobrir`, `/suinder matches` e `/suinder pausar`.'
     ].join('\n'))
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_INICIAL');
 }
 
 function buildStartPanelEmbed(): EmbedBuilder {
   const embed = new EmbedBuilder()
-    .setTitle('SUÍNDER — Conexões sociais da comunidade Suíte')
+    .setTitle('💚 SUÍNDER — Conexões da comunidade Suíte')
     .setDescription([
-      'Participar é **opcional**.',
-      'A V1 é restrita a pessoas **+18**.',
-      'O foco é conexão social: romance, amizades, jogos, filmes/séries, música, calls e conversas.',
-      'A V1 já possui perfil, descoberta, curtida, match, bloqueio e denúncia; não há modo anônimo, upload de imagem ou IA.',
-      'Todas as ações deste painel são efêmeras.'
+      'Um espaço para conhecer pessoas da comunidade através de interesses em comum, conversas leves e conexões reais.',
+      '',
+      'Aqui você pode encontrar:',
+      '🎮 parceiros de jogos',
+      '🎬 pessoas para falar sobre filmes e séries',
+      '🎵 quem combina com seu gosto musical',
+      '💬 novas amizades',
+      '❤️ conexões especiais',
+      '',
+      'Participar é opcional.',
+      'A comunidade vem em primeiro lugar, por isso o SUÍNDER foi pensado para ser seguro, respeitoso e sem pressão.',
+      '',
+      'Clique abaixo para começar.'
     ].join('\n'))
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_INICIAL');
 }
@@ -811,7 +815,7 @@ function buildCreateProfileEmbed(): EmbedBuilder {
       'A criação é opcional, restrita a pessoas **+18**, e usa seu avatar atual do Discord como foto padrão.',
       'Clique no botão abaixo para abrir o formulário efêmero de criação.'
     ].join('\n'))
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_CRIAR_PERFIL');
 }
@@ -829,7 +833,7 @@ function buildProfilePanelEmbed(profile: UserProfile): EmbedBuilder {
       { name: 'Foto padrão', value: 'Avatar atual do Discord', inline: true },
       { name: 'Status', value: formatStatus(profile.status), inline: true }
     )
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   if (profile.avatarUrl) {
     embed.setThumbnail(profile.avatarUrl);
@@ -849,7 +853,7 @@ function buildDiscoveryProfileEmbed(profile: UserProfile, filter: DiscoveryFilte
       { name: 'Filtro da sessão', value: filter, inline: true },
       { name: 'Segurança', value: 'Respeite consentimento e limites. Use bloquear/denunciar se algo parecer inadequado.', inline: false }
     )
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   if (profile.avatarUrl) {
     embed.setThumbnail(profile.avatarUrl);
@@ -862,7 +866,7 @@ function buildMatchCreatedEmbed(): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Deu match no SUÍNDER!')
     .setDescription('Vocês se curtiram mutuamente. Tentamos enviar DM para as duas pessoas, mas a entrega pode falhar se alguém estiver com DM fechada.')
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_MATCH');
 }
@@ -898,7 +902,7 @@ function buildNoProfilesEmbed(filter: DiscoveryFilter = 'Todos'): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Nenhum perfil elegível encontrado agora')
     .setDescription(`Perfis pausados, pendentes, suspensos, banidos, deletados, bloqueados ou já passados não aparecem na descoberta. Filtro atual: ${filter}.`)
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_SEM_PERFIS');
 }
@@ -1452,7 +1456,7 @@ function buildTermsEmbed(): EmbedBuilder {
       '',
       `Versão dos termos: ${CURRENT_TERMS_VERSION}`
     ].join('\n'))
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_INICIAL');
 }

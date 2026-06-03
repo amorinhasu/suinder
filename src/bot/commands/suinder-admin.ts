@@ -8,7 +8,7 @@ import {
 import type { AppContext } from '../../application/context.js';
 import type { AdminDashboardStats, AdminGuildSettings, AdminProfileHistory, AdminReportSummary } from '../../infrastructure/repositories/admin-repository.js';
 import { buildPublicPanelActionRows, buildPublicPanelEmbed } from '../public-panel.js';
-import { applyVisualBanner } from '../visual-assets.js';
+import { SUINDER_EMBED_COLOR, applyVisualBanner } from '../visual-assets.js';
 import type { SlashCommand } from './types.js';
 
 const profileActions = [
@@ -288,7 +288,7 @@ function buildDashboardEmbed(stats: AdminDashboardStats): EmbedBuilder {
       { name: 'Denúncias resolvidas', value: String(stats.resolvedReports), inline: true },
       { name: 'Limite diário de likes', value: `${stats.dailyLikeLimit} por dia`, inline: true }
     )
-    .setColor(0x5865f2);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_ADMIN');
 }
@@ -306,13 +306,13 @@ function buildSettingsEmbed(settings: AdminGuildSettings): EmbedBuilder {
       { name: 'Denúncias', value: settings.reportsEnabled ? 'Ativas' : 'Inativas', inline: true },
       { name: 'Super Like', value: settings.superLikeEnabled ? 'Ativo' : 'Inativo', inline: true }
     )
-    .setColor(0x5865f2);
+    .setColor(SUINDER_EMBED_COLOR);
 }
 
 function buildReportsListEmbed(reports: AdminReportSummary[]): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle('Denúncias abertas')
-    .setColor(0xffcc00);
+    .setColor(SUINDER_EMBED_COLOR);
 
   if (reports.length === 0) {
     embed.setDescription('Não há denúncias abertas no momento.');
@@ -340,7 +340,7 @@ function buildReportDetailsEmbed(report: AdminReportSummary): EmbedBuilder {
       { name: 'Status', value: report.status, inline: true },
       { name: 'Criada', value: formatDiscordDate(report.createdAt), inline: true }
     )
-    .setColor(0xffcc00);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_DENUNCIAS');
 }
@@ -364,7 +364,7 @@ function buildProfileHistoryEmbed(history: AdminProfileHistory): EmbedBuilder {
       { name: 'Logs recentes', value: truncate(auditSummary), inline: false },
       { name: 'Matches recentes', value: truncate(matchSummary), inline: false }
     )
-    .setColor(0x5865f2);
+    .setColor(SUINDER_EMBED_COLOR);
 }
 
 function formatDiscordDate(date: Date): string {

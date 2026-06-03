@@ -5,7 +5,7 @@ import {
   EmbedBuilder
 } from 'discord.js';
 import { LOOKING_FOR_OPTIONS } from '../domain/profile.js';
-import { applyVisualBanner } from './visual-assets.js';
+import { SUINDER_EMBED_COLOR, applyVisualBanner } from './visual-assets.js';
 
 export const PUBLIC_PANEL_BUTTON_PREFIX = 'suinder:public';
 
@@ -51,7 +51,7 @@ export function buildPublicPanelEmbed(): EmbedBuilder {
       'Os filtros de descoberta valem apenas para a sessão aberta pelo botão e não alteram seu perfil salvo.',
       'Participação opcional, restrita a pessoas **+18**, com foco em conexões sociais na comunidade Suíte.'
     ].join('\n'))
-    .setColor(0xff5c8a);
+    .setColor(SUINDER_EMBED_COLOR);
 
   return applyVisualBanner(embed, 'BANNER_INICIAL');
 }
