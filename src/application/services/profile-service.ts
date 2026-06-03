@@ -6,7 +6,6 @@ import {
   parseCompatibilityAnswers,
   parseLookingFor,
   parseReceiveDm,
-  validateAdultConsent,
   validateBio,
   validateNickname,
   type LookingForOption,
@@ -513,7 +512,6 @@ function isEligibleDiscoveryTarget(profile: UserProfile): boolean {
 }
 
 function normalizeProfileInput(input: RawProfileFormInput): ProfileInput {
-  validateAdultConsent(input.adultConsent);
   const compatibilityAnswers: CompatibilityAnswers = parseCompatibilityAnswers(input.compatibilityAnswers);
 
   return {

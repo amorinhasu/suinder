@@ -55,7 +55,7 @@ async function main() {
   }
 
   const commandPieces = [
-    'DM, +18 e preferências',
+    'DM e preferências opcionais',
     'formatCompatibility(profile)',
     '💚 Compatibilidade:',
     'Vocês combinam em:',

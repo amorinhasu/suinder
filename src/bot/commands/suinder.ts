@@ -545,7 +545,7 @@ export async function handleSuinderModalSubmit(interaction: ModalSubmitInteracti
     return true;
   }
 
-  const dmAndConsent = splitReceiveDmAndConsent(interaction.fields.getTextInputValue('receive_dm'));
+  const dmAndConsent = splitReceiveDmAndCompatibility(interaction.fields.getTextInputValue('receive_dm'));
   const input = {
     guildId: interaction.guildId ?? context.config.DISCORD_GUILD_ID,
     discordUserId: interaction.user.id,
@@ -1552,9 +1552,9 @@ function buildProfileModal(mode: 'create' | 'edit', profile?: UserProfile): Moda
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId('receive_dm')
-          .setLabel('DM, +18 e preferências')
+          .setLabel('DM e preferências opcionais')
           .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('DM: Sim; +18: Sim; Call ou Chat: Call; Dia ou Noite: Noite')
+          .setPlaceholder('DM: Sim; Call ou Chat: Call; Dia ou Noite: Noite')
           .setRequired(true)
           .setValue(profile ? formatReceiveDmAndCompatibility(profile.receiveDm, profile.compatibilityAnswers) : '')
       )
@@ -1574,14 +1574,13 @@ function formatStatus(status: UserProfile['status']): string {
   return labels[status];
 }
 
-function splitReceiveDmAndConsent(rawValue: string): { receiveDm: string; adultConsent: string; compatibilityAnswers: string } {
+function splitReceiveDmAndCompatibility(rawValue: string): { receiveDm: string; adultConsent: string; compatibilityAnswers: string } {
   const parts = rawValue.split(';').map((value) => value.trim()).filter(Boolean);
   const receiveDmPart = parts.find((value) => /^dm\s*:/i.test(value)) ?? parts[0] ?? '';
-  const adultConsentPart = parts.find((value) => /^\+?18\s*:/i.test(value)) ?? parts[1] ?? '';
 
   return {
     receiveDm: receiveDmPart.replace(/^dm\s*:/i, '').trim(),
-    adultConsent: adultConsentPart.replace(/^\+?18\s*:/i, '').trim(),
+    adultConsent: 'Sim',
     compatibilityAnswers: rawValue
   };
 }
@@ -1591,7 +1590,7 @@ function formatReceiveDmAndCompatibility(receiveDm: boolean, answers: Compatibil
     .map((question) => answers[question.key] ? `${question.label}: ${answers[question.key]}` : undefined)
     .filter(Boolean);
 
-  return [`DM: ${receiveDm ? 'Sim' : 'Não'}`, '+18: Sim', ...answerParts].join('; ');
+  return [`DM: ${receiveDm ? 'Sim' : 'Não'}`, ...answerParts].join('; ');
 }
 
 function formatCompatibilityAnswers(answers: CompatibilityAnswers): string {

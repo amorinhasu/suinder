@@ -232,7 +232,7 @@ Campos do perfil:
 - Idade obrigatória, bloqueando valores menores que 18.
 - Bio curta, limitada a 500 caracteres.
 - O que procura: `Romance`, `Amizades`, `Jogos`, `Filmes e Séries`, `Música`, `Call e Conversa`.
-- Consentimento +18 obrigatório.
+- Aceite dos Termos de Participação como consentimento +18 obrigatório; o modal não exige digitar uma confirmação +18 separada.
 - Preferência de receber DM: sim ou não.
 - Avatar atual do Discord como foto padrão, sem upload de imagem.
 
