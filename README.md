@@ -71,7 +71,13 @@ Para validar a estrutura das migrações sem conectar em um banco real, execute:
 npm run migrate:check
 ```
 
-Para aplicar as migrações, crie o banco PostgreSQL indicado em `DATABASE_URL` e execute:
+Para aplicar as migrações em desenvolvimento, crie o banco PostgreSQL indicado em `DATABASE_URL` e execute:
+
+```bash
+npm run migrate:dev
+```
+
+Em produção, primeiro gere `dist/` com `npm run build` e então aplique as migrações compiladas com:
 
 ```bash
 npm run migrate
@@ -103,14 +109,61 @@ npm run build
 npm start
 ```
 
+O arquivo principal real do projeto é `dist/main.js`. A pasta `dist/` não é versionada e precisa ser gerada antes de iniciar em produção.
+
 Ao iniciar, o bot valida a conexão com o banco, registra os slash commands na guild configurada e faz login no Discord.
+
+
+## Deploy em produção (Square Cloud / hospedagens Node.js)
+
+Use Node.js 20 ou superior. O projeto está configurado para rodar o JavaScript compilado, não `tsx`, em produção:
+
+- Arquivo principal real: `dist/main.js`.
+- Comando de build: `npm run build`.
+- Comando de migração após o build: `npm run migrate`.
+- Comando de start: `npm start`.
+- Configuração Square Cloud incluída: `squarecloud.app`, com `MAIN=dist/main.js` e `START=npm start`.
+- `dist/` não existe no repositório por padrão porque é artefato de build ignorado pelo Git.
+- O start não compila TypeScript; portanto, a hospedagem precisa executar `npm run build` antes de `npm start` ou receber um pacote já compilado.
+- Se for enviar um `.zip` para a Square Cloud com o `squarecloud.app` deste repositório, gere `dist/` antes de compactar para que `dist/main.js` exista no pacote.
+
+Sequência recomendada de deploy:
+
+```bash
+npm install
+npm run build
+npm run migrate
+npm start
+```
+
+Para upload manual na Square Cloud, compacte pelo menos `squarecloud.app`, `package.json`, `.npmrc`, `migrations/`, `dist/` e demais arquivos necessários de runtime após o build. Não envie `.env` com segredos no zip; configure as variáveis no painel da hospedagem.
+
+Se a hospedagem instalar apenas dependências de produção (`npm install --omit=dev`), faça o build antes dessa etapa ou garanta uma fase de build com `devDependencies`, pois `typescript` é necessário para compilar mas não é dependência de runtime. Depois de compilado, o runtime usa apenas `discord.js`, `dotenv`, `pg` e `zod`.
+
+Variáveis de ambiente obrigatórias:
+
+- `DISCORD_TOKEN`: token do bot do Discord.
+- `DISCORD_CLIENT_ID`: ID da aplicação/bot no Discord.
+- `DISCORD_GUILD_ID`: ID da guild onde os slash commands serão registrados.
+- `DATABASE_URL`: URL PostgreSQL acessível pela hospedagem.
+
+Variáveis opcionais ou com padrão:
+
+- `DATABASE_SSL`: use `true` se o PostgreSQL da hospedagem exigir TLS; padrão `false`.
+- `ADMIN_LOG_CHANNEL_ID`: canal privado para logs administrativos.
+- `MODERATOR_ROLE_ID`: cargo autorizado a usar `/suinder-admin` além de administradores do Discord.
+- `NODE_ENV`: use `production` em deploy.
+- `LOG_LEVEL`: padrão recomendado `info`.
+
+Antes de iniciar o bot pela primeira vez em uma nova base, rode `npm run migrate` após o build. O comando de migração de produção usa `node dist/infrastructure/database/migrate.js`, evitando depender de `tsx` no runtime.
 
 ## Scripts
 
 - `npm run dev`: executa o bot com `tsx watch`.
 - `npm run build`: compila TypeScript para `dist/`.
 - `npm start`: executa `dist/main.js`.
-- `npm run migrate`: aplica migrações SQL pendentes.
+- `npm run migrate`: aplica migrações SQL pendentes a partir do migrator compilado em `dist/infrastructure/database/migrate.js`; exige `npm run build` antes em produção.
+- `npm run migrate:dev`: aplica migrações SQL pendentes diretamente do TypeScript com `tsx`, apenas para desenvolvimento.
 - `npm run migrate:check`: valida offline a estrutura mínima das migrações SQL sem conectar ao banco.
 - `npm run discovery:check`: valida offline as regras mínimas da query e do card de descoberta.
 - `npm run match:check`: valida offline as regras mínimas de curtida, transação, match único, DM best-effort e logs.
