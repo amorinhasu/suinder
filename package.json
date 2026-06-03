@@ -1,0 +1,44 @@
+{
+  "name": "suinder",
+  "version": "0.1.0",
+  "description": "Fundação técnica do bot SUÍNDER para Discord.",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "migrate": "node dist/infrastructure/database/migrate.js",
+    "migrate:dev": "tsx src/infrastructure/database/migrate.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "migrate:check": "node scripts/validate-migrations.mjs",
+    "discovery:check": "node scripts/validate-discovery.mjs",
+    "match:check": "node scripts/validate-match.mjs",
+    "super-like:check": "node scripts/validate-super-like.mjs",
+    "dm:check": "node scripts/validate-dm.mjs",
+    "matches:check": "node scripts/validate-matches.mjs",
+    "admin:check": "node scripts/validate-admin.mjs",
+    "stability:check": "node scripts/validate-v1-stability.mjs",
+    "v1:check": "npm run migrate:check && npm run discovery:check && npm run quality:check && npm run compatibility:check && npm run terms:check && npm run match:check && npm run super-like:check && npm run dm:check && npm run matches:check && npm run admin:check && npm run stability:check",
+    "quality:check": "node scripts/validate-discovery-quality.mjs",
+    "compatibility:check": "node scripts/validate-compatibility.mjs",
+    "compatibilidade:check": "node scripts/validate-compatibility.mjs",
+    "terms:check": "node scripts/validate-terms.mjs"
+  },
+  "dependencies": {
+    "discord.js": "^14.19.3",
+    "dotenv": "^16.5.0",
+    "pg": "^8.16.0",
+    "zod": "^3.25.49",
+    "@types/node": "^22.15.29",
+    "@types/pg": "^8.15.4",
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
