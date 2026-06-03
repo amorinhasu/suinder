@@ -181,7 +181,7 @@ export class AdminRepository {
       [guildId]
     );
 
-    return mapSettingsRow(result.rows[0]);
+    return mapSettingsRow(requireSettingsRow(result.rows[0]));
   }
 
   public async updateSetting(guildId: string, key: string, value: string): Promise<AdminGuildSettings> {
@@ -211,7 +211,7 @@ export class AdminRepository {
       [guildId, parsedValue]
     );
 
-    return mapSettingsRow(result.rows[0]);
+    return mapSettingsRow(requireSettingsRow(result.rows[0]));
   }
 
   public async findProfileById(guildId: string, profileId: string): Promise<UserProfile | null> {
@@ -397,6 +397,14 @@ function parseSettingValue(key: string, value: string): string | number | boolea
   }
 
   throw new Error('Configuração administrativa inválida.');
+}
+
+function requireSettingsRow(row: SettingsRow | undefined): SettingsRow {
+  if (!row) {
+    throw new Error('Configurações da guild não foram retornadas pelo banco.');
+  }
+
+  return row;
 }
 
 function mapSettingsRow(row: SettingsRow): AdminGuildSettings {
