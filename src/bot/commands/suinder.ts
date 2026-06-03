@@ -219,7 +219,7 @@ export const suinderCommand: SlashCommand = {
 };
 
 export async function handleSuinderButton(interaction: ButtonInteraction, context: AppContext): Promise<boolean> {
-  if (!interaction.customId.startsWith('suinder:profile:') && !interaction.customId.startsWith('suinder:discover:') && !interaction.customId.startsWith('suinder:match:') && !interaction.customId.startsWith('suinder:public:') && interaction.customId !== DM_TEST_BUTTON_ID) {
+  if (!interaction.customId.startsWith('suinder:profile:') && !interaction.customId.startsWith('suinder:discover:') && !interaction.customId.startsWith('suinder:match:') && !interaction.customId.startsWith('suinder:public:') && !interaction.customId.startsWith('suinder:terms:') && interaction.customId !== DM_TEST_BUTTON_ID) {
     return false;
   }
 

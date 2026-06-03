@@ -33,7 +33,29 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
     }
 
     try {
-      if (interaction.isButton() && await handleSuinderButton(interaction, context)) {
+      if (interaction.isButton()) {
+        context.logger.info('Button interaction received', {
+          customId: interaction.customId,
+          discordUserId: interaction.user.id,
+          guildId: interaction.guildId
+        });
+
+        const handled = await handleSuinderButton(interaction, context);
+        context.logger.info('Button interaction routed', {
+          customId: interaction.customId,
+          discordUserId: interaction.user.id,
+          guildId: interaction.guildId,
+          handled
+        });
+
+        if (handled) {
+          return;
+        }
+
+        await interaction.reply({
+          content: 'Este botão não está mais disponível. Use `/suinder iniciar` ou o painel mais recente do SUÍNDER.',
+          ephemeral: true
+        });
         return;
       }
 
@@ -42,6 +64,9 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
       }
     } catch (error) {
       context.logger.error('Failed to handle component interaction', {
+        customId: 'customId' in interaction ? interaction.customId : undefined,
+        discordUserId: interaction.user.id,
+        guildId: interaction.guildId,
         error: error instanceof Error ? error.message : String(error)
       });
 
