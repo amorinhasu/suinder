@@ -181,6 +181,8 @@ Curtir todos os perfis reduz valor social e pode virar mecanismo de assédio.
 Soluções:
 
 - Rate limit de likes por janela de tempo.
+- Limite diário configurável de curtidas comuns por `guild_id` + usuário, com padrão de 30 por dia.
+- Super Like não deve consumir o limite diário de curtidas comuns.
 - Limite diário de ações.
 - Sinalização administrativa de comportamento anômalo.
 
@@ -483,7 +485,7 @@ Em match:
 - `/suinder-admin dashboard`: mostra métricas efêmeras de perfis, matches e denúncias.
 - `/suinder-admin perfil`: aprova, suspende, bane, reativa ou consulta histórico de perfil.
 - `/suinder-admin denuncias`: lista abertas, vê detalhes, resolve, suspende usuário denunciado ou bane usuário denunciado.
-- `/suinder-admin config`: altera canal de logs, canal de denúncias, aprovação manual, expiração de pass e toggles de match/denúncias.
+- `/suinder-admin config`: altera canal de logs, canal de denúncias, aprovação manual, expiração de pass, limite diário de likes e toggles de match/denúncias/Super Like.
 
 ## 10. Permissões administrativas
 
@@ -528,14 +530,31 @@ Em match:
 
 Recomendação crítica: se a comunidade já teve problemas de moderação, usar revisão manual inicial. Se o volume for alto, começar sem revisão manual, mas com denúncia e pausa rápida.
 
+### 11.1.1 Termos de Participação
+
+Antes de criar perfil ou continuar usando o SUÍNDER, o usuário deve aceitar os Termos de Participação vigentes. A versão atual é `2026-06` e o perfil armazena `terms_accepted_at` e `terms_version`. Se a versão mudar no futuro, usuários existentes devem aceitar novamente antes de usar fluxos comuns. Recusar os termos encerra o fluxo sem criar perfil.
+
 ### 11.2 Descoberta de perfil
 
-1. Usuário executa `/suinder descobrir`.
-2. Sistema valida se o usuário tem perfil ativo.
-3. Sistema seleciona perfil elegível.
-4. Sistema exclui o próprio perfil, perfis bloqueados em qualquer direção, perfis com `pass` ainda válido e qualquer perfil que não esteja `active`, +18, com consentimento e ao menos um interesse.
-5. Bot mostra card efêmero com apelido, idade, bio, interesses, avatar do Discord e aviso discreto de segurança, sem revelar ID do usuário ou dados administrativos.
-6. `Curtir` registra a curtida e pode criar match; `Passar` e `Próximo` registram descarte temporário; `Bloquear` registra bloqueio e encerra matches ativos; e `Denunciar` abre modal, registra denúncia e aplica bloqueio automático por segurança.
+1. Usuário executa `/suinder descobrir` opcionalmente com filtro de sessão por interesse (`Todos`, `Romance`, `Amizades`, `Jogos`, `Filmes e Séries`, `Música`, `Call e Conversa`).
+2. Sistema valida se o usuário aceitou a versão atual dos termos e tem perfil ativo.
+3. Sistema seleciona perfil elegível respeitando o filtro da sessão quando ele for diferente de `Todos`.
+4. Sistema exclui o próprio perfil, perfis bloqueados em qualquer direção, perfis com `pass` ainda válido, perfis fora do filtro escolhido e qualquer perfil que não esteja `active`, +18, com consentimento, termos atuais aceitos e ao menos um interesse.
+5. Bot mostra card efêmero com apelido, idade, bio, interesses, avatar do Discord, compatibilidade por regras e aviso discreto de segurança, sem revelar ID do usuário ou dados administrativos.
+6. A compatibilidade é calculada sem IA: interesses em comum têm peso maior e respostas iguais às perguntas rápidas opcionais têm peso médio, gerando percentual entre 0% e 100% e principais pontos em comum.
+7. `Curtir` respeita o limite diário configurável, registra a curtida e pode criar match; `Passar` e `Próximo` registram descarte temporário; `Bloquear` registra bloqueio e encerra matches ativos; e `Denunciar` abre modal, registra denúncia e aplica bloqueio automático por segurança.
+
+### 11.2.1 Compatibilidade inteligente sem IA
+
+Perguntas rápidas opcionais armazenadas no perfil:
+
+- Call ou Chat.
+- Dia ou Noite.
+- Grupo ou Conversa Individual.
+- Jogos ou Filmes.
+- Planejar ou Improvisar.
+
+O cálculo usa apenas regras locais: interesses compartilhados têm peso maior e respostas iguais têm peso médio. O resultado é limitado entre 0% e 100% e exibido apenas durante a descoberta com os principais pontos em comum. Não há IA, API externa, alteração de regras de descoberta, alteração de bloqueios, alteração de limites de likes ou alteração de Super Like.
 
 ### 11.3 Curtir e match
 
@@ -553,7 +572,7 @@ Observação crítica: mensagens efêmeras só existem como resposta a interaç�
 ### 11.4 Gerenciar matches
 
 1. Usuário executa `/suinder matches`.
-2. Sistema valida se o usuário tem perfil ativo.
+2. Sistema valida se o usuário aceitou a versão atual dos termos e tem perfil ativo.
 3. Sistema lista apenas matches `active` pertencentes ao perfil do usuário, excluindo matches bloqueados, desfeitos, encerrados, deletados ou indisponíveis por bloqueio em qualquer direção.
 4. Card efêmero mostra apelido, idade, interesses, data do match, status e aviso discreto de segurança, sem revelar IDs ou dados administrativos.
 5. `Ver perfil` mostra o perfil do match de forma efêmera.

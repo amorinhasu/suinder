@@ -1,6 +1,7 @@
 export const PROFILE_NICKNAME_MAX_LENGTH = 80;
 export const PROFILE_BIO_MAX_LENGTH = 500;
 export const PROFILE_MIN_AGE = 18;
+export const CURRENT_TERMS_VERSION = '2026-06';
 
 export const LOOKING_FOR_OPTIONS = [
   'Romance',
@@ -11,8 +12,41 @@ export const LOOKING_FOR_OPTIONS = [
   'Call e Conversa'
 ] as const;
 
+export const COMPATIBILITY_QUESTIONS = [
+  { key: 'communication', label: 'Call ou Chat', options: ['Call', 'Chat'] },
+  { key: 'routine', label: 'Dia ou Noite', options: ['Dia', 'Noite'] },
+  { key: 'social', label: 'Grupo ou Conversa Individual', options: ['Grupo', 'Conversa Individual'] },
+  { key: 'entertainment', label: 'Jogos ou Filmes', options: ['Jogos', 'Filmes'] },
+  { key: 'planning', label: 'Planejar ou Improvisar', options: ['Planejar', 'Improvisar'] }
+] as const;
+
+const COMPATIBILITY_POINT_EMOJIS: Record<string, string> = {
+  Jogos: '🎮',
+  Call: '🎙️',
+  Noite: '🌙',
+  Dia: '☀️',
+  Chat: '💬',
+  Grupo: '👥',
+  'Conversa Individual': '🫂',
+  Filmes: '🎬',
+  Planejar: '🗓️',
+  Improvisar: '✨',
+  Romance: '💚',
+  Amizades: '🤝',
+  'Filmes e Séries': '🎬',
+  Música: '🎵',
+  'Call e Conversa': '🎙️'
+};
+
 export type LookingForOption = (typeof LOOKING_FOR_OPTIONS)[number];
+export type CompatibilityQuestionKey = (typeof COMPATIBILITY_QUESTIONS)[number]['key'];
+export type CompatibilityAnswers = Partial<Record<CompatibilityQuestionKey, string>>;
 export type ProfileStatus = 'active' | 'paused' | 'pending_review' | 'suspended' | 'banned' | 'deleted';
+
+export interface CompatibilityResult {
+  percentage: number;
+  sharedPoints: string[];
+}
 
 export interface UserProfile {
   id: string;
@@ -22,6 +56,10 @@ export interface UserProfile {
   age: number | null;
   bio: string;
   lookingFor: LookingForOption[];
+  compatibilityAnswers: CompatibilityAnswers;
+  compatibility?: CompatibilityResult;
+  termsAcceptedAt: Date | null;
+  termsVersion: string | null;
   receiveDm: boolean;
   avatarUrl: string | null;
   status: ProfileStatus;
@@ -38,6 +76,9 @@ export interface ProfileInput {
   age: number;
   bio: string;
   lookingFor: LookingForOption[];
+  compatibilityAnswers: CompatibilityAnswers;
+  termsAcceptedAt: Date;
+  termsVersion: string;
   receiveDm: boolean;
   avatarUrl: string;
   consentedAt: Date;
@@ -45,6 +86,13 @@ export interface ProfileInput {
 
 const normalizedLookingFor = new Map<string, LookingForOption>(
   LOOKING_FOR_OPTIONS.map((option) => [normalizeOption(option), option])
+);
+
+const compatibilityOptionsByQuestion = new Map<CompatibilityQuestionKey, Map<string, string>>(
+  COMPATIBILITY_QUESTIONS.map((question) => [
+    question.key,
+    new Map(question.options.map((option) => [normalizeOption(option), option]))
+  ])
 );
 
 export function parseLookingFor(rawValue: string): LookingForOption[] {
@@ -68,6 +116,37 @@ export function parseLookingFor(rawValue: string): LookingForOption[] {
   }
 
   return [...unique];
+}
+
+export function parseCompatibilityAnswers(rawValue: string): CompatibilityAnswers {
+  const answers: CompatibilityAnswers = {};
+  const segments = rawValue
+    .split(/[;\n]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  for (const segment of segments) {
+    const [rawLabel, ...rawAnswerParts] = segment.split(':');
+    if (!rawLabel || rawAnswerParts.length === 0) {
+      continue;
+    }
+
+    const label = normalizeOption(rawLabel.replace(/^\+?18$/i, ''));
+    const answer = rawAnswerParts.join(':').trim();
+    const question = COMPATIBILITY_QUESTIONS.find((item) => normalizeOption(item.label) === label);
+    if (!question || !answer) {
+      continue;
+    }
+
+    const normalizedAnswer = compatibilityOptionsByQuestion.get(question.key)?.get(normalizeOption(answer));
+    if (!normalizedAnswer) {
+      throw new Error(`Resposta inválida para "${question.label}": ${answer}`);
+    }
+
+    answers[question.key] = normalizedAnswer;
+  }
+
+  return answers;
 }
 
 export function parseReceiveDm(rawValue: string): boolean {
@@ -122,6 +201,33 @@ export function validateBio(bio: string): string {
   return trimmed;
 }
 
+export function calculateCompatibility(viewer: UserProfile, target: UserProfile): CompatibilityResult {
+  const sharedInterests = target.lookingFor.filter((interest) => viewer.lookingFor.includes(interest));
+  const interestBase = Math.max(viewer.lookingFor.length, target.lookingFor.length, 1);
+  const interestScore = (sharedInterests.length / interestBase) * 60;
+
+  const matchingAnswers = COMPATIBILITY_QUESTIONS.filter((question) => {
+    const viewerAnswer = viewer.compatibilityAnswers[question.key];
+    const targetAnswer = target.compatibilityAnswers[question.key];
+    return Boolean(viewerAnswer && targetAnswer && viewerAnswer === targetAnswer);
+  });
+  const answerScore = (matchingAnswers.length / COMPATIBILITY_QUESTIONS.length) * 40;
+
+  const sharedPoints = [
+    ...sharedInterests.map(formatCompatibilityPoint),
+    ...matchingAnswers.map((question) => formatCompatibilityPoint(viewer.compatibilityAnswers[question.key] ?? question.label))
+  ].slice(0, 5);
+
+  return {
+    percentage: Math.max(0, Math.min(100, Math.round(interestScore + answerScore))),
+    sharedPoints
+  };
+}
+
+export function hasAcceptedCurrentTerms(profile: Pick<UserProfile, 'termsAcceptedAt' | 'termsVersion'>): boolean {
+  return profile.termsAcceptedAt !== null && profile.termsVersion === CURRENT_TERMS_VERSION;
+}
+
 export function isProfileDiscoverable(profile: Pick<UserProfile, 'status' | 'age' | 'consentedAt' | 'lookingFor'>): boolean {
   return profile.status === 'active'
     && (profile.age ?? 0) >= PROFILE_MIN_AGE
@@ -135,6 +241,10 @@ export function validateAdultConsent(rawValue: string): void {
   if (!['sim', 's', 'yes', 'y'].includes(normalized)) {
     throw new Error('Consentimento +18 obrigatório para criar ou editar o perfil.');
   }
+}
+
+function formatCompatibilityPoint(value: string): string {
+  return `${COMPATIBILITY_POINT_EMOJIS[value] ?? '💚'} ${value}`;
 }
 
 function normalizeOption(value: string): string {

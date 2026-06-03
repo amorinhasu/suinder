@@ -42,7 +42,21 @@ const requiredProfileV1Fields = [
   'report_log_channel_id',
   'match_enabled',
   'reports_enabled',
-  'guild_settings_pass_expiration_days_range'
+  'guild_settings_pass_expiration_days_range',
+  "add value if not exists 'super_like'",
+  'super_like_enabled',
+  'add column if not exists is_super_match',
+  'create table if not exists super_like_usages',
+  'unique (guild_id, actor_discord_user_id, week_start)',
+  'idx_super_like_usages_actor_week',
+  'idx_profile_actions_super_like',
+  'add column if not exists daily_like_limit',
+  'guild_settings_daily_like_limit_range',
+  'add column if not exists compatibility_answers',
+  'user_profiles_compatibility_answers_object',
+  'add column if not exists terms_accepted_at',
+  'add column if not exists terms_version',
+  'idx_user_profiles_terms',
 ];
 
 const forbiddenProductionOperations = [

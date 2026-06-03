@@ -7,6 +7,8 @@ import {
 } from 'discord.js';
 import type { AppContext } from '../../application/context.js';
 import type { AdminDashboardStats, AdminGuildSettings, AdminProfileHistory, AdminReportSummary } from '../../infrastructure/repositories/admin-repository.js';
+import { buildPublicPanelActionRows, buildPublicPanelEmbed } from '../public-panel.js';
+import { applyVisualBanner } from '../visual-assets.js';
 import type { SlashCommand } from './types.js';
 
 const profileActions = [
@@ -30,8 +32,10 @@ const configKeys = [
   { name: 'Canal de denúncias', value: 'report_log_channel_id' },
   { name: 'Aprovação manual de perfil', value: 'profile_review_required' },
   { name: 'Dias de expiração do pass', value: 'pass_expiration_days' },
+  { name: 'Limite diário de likes', value: 'daily_like_limit' },
   { name: 'Ativar/desativar match', value: 'match_enabled' },
-  { name: 'Ativar/desativar denúncias', value: 'reports_enabled' }
+  { name: 'Ativar/desativar denúncias', value: 'reports_enabled' },
+  { name: 'Ativar/desativar Super Like', value: 'super_like_enabled' }
 ] as const;
 
 type ProfileAction = (typeof profileActions)[number]['value'];
@@ -45,6 +49,11 @@ export const suinderAdminCommand: SlashCommand = {
       subcommand
         .setName('dashboard')
         .setDescription('Mostra indicadores administrativos do SUÍNDER')
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('painel')
+        .setDescription('Envia o painel público de acesso rápido do SUÍNDER no canal atual')
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -122,6 +131,11 @@ export const suinderAdminCommand: SlashCommand = {
       return;
     }
 
+    if (subcommand === 'painel') {
+      await handlePublicPanelAdmin(interaction);
+      return;
+    }
+
     if (subcommand === 'perfil') {
       await handleProfileAdmin(interaction, context, guildId);
       return;
@@ -171,6 +185,25 @@ async function ensureAdminAccess(interaction: ChatInputCommandInteraction, conte
   }
 
   return true;
+}
+
+
+async function handlePublicPanelAdmin(interaction: ChatInputCommandInteraction): Promise<void> {
+  const channel = interaction.channel;
+  if (!channel?.isTextBased() || !('send' in channel)) {
+    await interaction.reply({ content: 'Não foi possível enviar o painel neste canal.', ephemeral: true });
+    return;
+  }
+
+  await channel.send({
+    embeds: [buildPublicPanelEmbed()],
+    components: buildPublicPanelActionRows()
+  });
+
+  await interaction.reply({
+    content: '✅ Painel público do SUÍNDER enviado neste canal. Os botões respondem de forma efêmera para cada usuário.',
+    ephemeral: true
+  });
 }
 
 async function handleProfileAdmin(interaction: ChatInputCommandInteraction, context: AppContext, guildId: string): Promise<void> {
@@ -242,7 +275,7 @@ async function handleConfigAdmin(interaction: ChatInputCommandInteraction, conte
 }
 
 function buildDashboardEmbed(stats: AdminDashboardStats): EmbedBuilder {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setTitle('Painel administrativo SUÍNDER')
     .setDescription('Indicadores privados de moderação e operação.')
     .addFields(
@@ -252,9 +285,12 @@ function buildDashboardEmbed(stats: AdminDashboardStats): EmbedBuilder {
       { name: 'Perfis banidos', value: String(stats.bannedProfiles), inline: true },
       { name: 'Matches ativos', value: String(stats.activeMatches), inline: true },
       { name: 'Denúncias abertas', value: String(stats.openReports), inline: true },
-      { name: 'Denúncias resolvidas', value: String(stats.resolvedReports), inline: true }
+      { name: 'Denúncias resolvidas', value: String(stats.resolvedReports), inline: true },
+      { name: 'Limite diário de likes', value: `${stats.dailyLikeLimit} por dia`, inline: true }
     )
     .setColor(0x5865f2);
+
+  return applyVisualBanner(embed, 'BANNER_ADMIN');
 }
 
 function buildSettingsEmbed(settings: AdminGuildSettings): EmbedBuilder {
@@ -265,8 +301,10 @@ function buildSettingsEmbed(settings: AdminGuildSettings): EmbedBuilder {
       { name: 'Canal de denúncias', value: settings.reportLogChannelId ?? 'Não configurado', inline: true },
       { name: 'Aprovação manual', value: settings.profileReviewRequired ? 'Ativa' : 'Inativa', inline: true },
       { name: 'Expiração do pass', value: `${settings.passExpirationDays} dia(s)`, inline: true },
+      { name: 'Limite diário de likes', value: `${settings.dailyLikeLimit} por dia`, inline: true },
       { name: 'Match', value: settings.matchEnabled ? 'Ativo' : 'Inativo', inline: true },
-      { name: 'Denúncias', value: settings.reportsEnabled ? 'Ativas' : 'Inativas', inline: true }
+      { name: 'Denúncias', value: settings.reportsEnabled ? 'Ativas' : 'Inativas', inline: true },
+      { name: 'Super Like', value: settings.superLikeEnabled ? 'Ativo' : 'Inativo', inline: true }
     )
     .setColor(0x5865f2);
 }
@@ -278,7 +316,7 @@ function buildReportsListEmbed(reports: AdminReportSummary[]): EmbedBuilder {
 
   if (reports.length === 0) {
     embed.setDescription('Não há denúncias abertas no momento.');
-    return embed;
+    return applyVisualBanner(embed, 'BANNER_DENUNCIAS');
   }
 
   for (const report of reports) {
@@ -289,11 +327,11 @@ function buildReportsListEmbed(reports: AdminReportSummary[]): EmbedBuilder {
     });
   }
 
-  return embed;
+  return applyVisualBanner(embed, 'BANNER_DENUNCIAS');
 }
 
 function buildReportDetailsEmbed(report: AdminReportSummary): EmbedBuilder {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setTitle(`Denúncia ${report.id}`)
     .setDescription(report.description ?? 'Sem descrição.')
     .addFields(
@@ -303,6 +341,8 @@ function buildReportDetailsEmbed(report: AdminReportSummary): EmbedBuilder {
       { name: 'Criada', value: formatDiscordDate(report.createdAt), inline: true }
     )
     .setColor(0xffcc00);
+
+  return applyVisualBanner(embed, 'BANNER_DENUNCIAS');
 }
 
 function buildProfileHistoryEmbed(history: AdminProfileHistory): EmbedBuilder {

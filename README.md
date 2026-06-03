@@ -2,7 +2,7 @@
 
 Fundação técnica do bot SUÍNDER para Discord, baseada na especificação V1 em [`docs/suinder-v1-spec.md`](docs/suinder-v1-spec.md).
 
-Esta etapa mantém a base modular do projeto e já implementa os fluxos V1 de perfil, descoberta, descarte, bloqueio, denúncia, curtir e match, sem chat anônimo ou recursos futuros.
+Esta etapa mantém a base modular do projeto e já implementa os fluxos V1 de perfil, descoberta, descarte, bloqueio, denúncia, curtir e match, além do Super Like V2, sem chat anônimo ou modo anônimo.
 
 ## O que existe nesta fundação
 
@@ -28,7 +28,6 @@ Esta etapa mantém a base modular do projeto e já implementa os fluxos V1 de pe
 ## Fora do escopo desta etapa
 
 - Chat pós-match ou chat anônimo.
-- Super like.
 - Modo anônimo.
 - IA.
 - Compatibilidade inteligente.
@@ -193,7 +192,12 @@ No `squarecloud.app` atual, `npm run migrate` já faz parte do `START` depois do
 - `npm run migrate:dev`: aplica migrações SQL pendentes diretamente do TypeScript com `tsx`, apenas para desenvolvimento.
 - `npm run migrate:check`: valida offline a estrutura mínima das migrações SQL sem conectar ao banco.
 - `npm run discovery:check`: valida offline as regras mínimas da query e do card de descoberta.
+- `npm run quality:check`: valida offline o limite diário de likes, filtros de descoberta, painel público e configuração administrativa relacionada.
+- `npm run compatibility:check` / `npm run compatibilidade:check`: valida offline perguntas rápidas, cálculo por regras, persistência e exibição de compatibilidade sem IA.
+- `npm run terms:check`: valida offline campos de aceite, versão atual, tela de termos, recusa, aceite antes da criação e revalidação por versão.
 - `npm run match:check`: valida offline as regras mínimas de curtida, transação, match único, DM best-effort e logs.
+- `npm run super-like:check`: valida offline regras mínimas do Super Like V2, limite semanal, Super Match, logs e configurações.
+- `npm run dm:check`: valida offline a obrigatoriedade de DM para criação, reativação, descoberta, curtidas e Super Likes.
 - `npm run matches:check`: valida offline listagem e gerenciamento de matches ativos.
 - `npm run admin:check`: valida offline o comando administrativo, permissões e ações de moderação.
 - `npm run stability:check`: valida invariantes V1 de estabilização, como filtros por guild, toggles, rate limits e soft delete.
@@ -234,9 +238,23 @@ Campos do perfil:
 
 A configuração `guild_settings.profile_review_required` controla se novos perfis ficam `active` imediatamente ou `pending_review` como pendentes de revisão.
 
+
+## Validação obrigatória de DM
+
+O SUÍNDER verifica mensagens privadas antes de permitir participação em fluxos que dependem de DM. Durante a criação de perfil e a reativação de perfil, o bot envia uma mensagem de teste ao usuário:
+
+```text
+💚 Bem-vindo ao SUÍNDER.
+
+Esta é uma mensagem de verificação.
+Se você recebeu este aviso, sua conta está pronta para participar.
+```
+
+Se a DM falhar, o perfil não é criado/reativado naquele momento e a descoberta, curtidas e Super Likes ficam bloqueados até a validação passar. A resposta é sempre efêmera e mostra o botão **Testar Novamente**. Falhas de DM não geram log administrativo; apenas logs técnicos podem ser emitidos para diagnóstico.
+
 ## Descoberta V1 com descarte, segurança, curtida e match
 
-O comando `/suinder descobrir` mostra um perfil elegível por vez em mensagem efêmera. O card exibe apenas apelido, idade, bio, interesses e avatar do Discord, sem revelar ID do usuário ou dados administrativos.
+O comando `/suinder descobrir` mostra um perfil elegível por vez em mensagem efêmera. Ele aceita o filtro opcional de sessão `filtro` com **Todos**, **Romance**, **Amizades**, **Jogos**, **Filmes e Séries**, **Música** ou **Call e Conversa**. Esse filtro só vale para a sessão atual, não altera o perfil salvo e também é preservado nos botões efêmeros do card. O card exibe apenas apelido, idade, bio, interesses, avatar do Discord e uma porcentagem de compatibilidade calculada localmente por regras, sem IA e sem APIs externas.
 
 A query de descoberta exclui:
 
@@ -247,7 +265,11 @@ A query de descoberta exclui:
 - Perfis bloqueados pelo usuário ou que bloquearam o usuário.
 - Perfis que o usuário marcou como `pass` em `profile_actions` enquanto o descarte temporário ainda está válido.
 
-O botão `Curtir` registra `like` em `profile_actions` sem gerar log administrativo individual. Se houver curtida recíproca, o sistema cria um match `active` único dentro de transação, registra apenas o evento `match.created` nos logs administrativos e tenta enviar DM para as duas pessoas; falhas de DM são tratadas como best-effort e não quebram o fluxo efêmero.
+As perguntas rápidas opcionais do perfil são **Call ou Chat**, **Dia ou Noite**, **Grupo ou Conversa Individual**, **Jogos ou Filmes** e **Planejar ou Improvisar**. A compatibilidade combina interesses em comum com peso maior e respostas iguais com peso médio, exibindo os principais pontos em comum sem alterar regras de descoberta, bloqueio, limites de likes ou Super Like.
+
+O botão `Curtir` registra `like` em `profile_actions` sem gerar log administrativo individual. Curtidas comuns consomem o limite diário por `guild_id` + usuário definido em `guild_settings.daily_like_limit`, com padrão de 30 por dia; Super Likes não contam nesse limite. Se houver curtida recíproca, o sistema cria um match `active` único dentro de transação, registra apenas o evento `match.created` nos logs administrativos e tenta enviar DM para as duas pessoas; falhas de DM são tratadas como best-effort e não quebram o fluxo efêmero.
+
+O botão `⭐ Super Like` registra `super_like` em `profile_actions` e o uso semanal em `super_like_usages`, limitado a 1 uso por `guild_id` + usuário por janela semanal simples. Se não houver curtida recíproca, o alvo recebe uma DM sem revelar quem enviou; se houver curtida recíproca, o sistema cria/atualiza um match com `is_super_match=true`, registra apenas `match.super_created` nos logs administrativos e usa os banners de Super Like/Super Match. A configuração `guild_settings.super_like_enabled` permite desativar o recurso, com padrão ativo.
 
 Os botões `Passar` e `Próximo` registram `pass` temporário em `profile_actions`, com expiração configurável por `guild_settings.pass_expiration_days` e padrão de 30 dias, para evitar repetição imediata sem ocultar para sempre. O botão `Bloquear` registra `user_blocks`, impede descoberta permanente em ambas as direções, marca matches ativos como bloqueados e registra log administrativo mínimo. O botão `Denunciar` abre modal com motivo e detalhes opcionais, registra em `reports`, envia log administrativo/canal configurado e bloqueia automaticamente o perfil denunciado para a opção mais segura.
 
@@ -271,8 +293,9 @@ O comando `/suinder-admin` é restrito a membros com permissão de Administrador
 Subcomandos disponíveis:
 
 - `/suinder-admin dashboard`: mostra perfis ativos, pendentes, suspensos, banidos, matches ativos, denúncias abertas e denúncias resolvidas.
+- `/suinder-admin painel`: envia no canal atual um painel público fixável com o banner inicial e botões de acesso rápido para criar/ver perfil, descobrir pessoas, filtros de descoberta, ver matches, pausar/reativar perfil e ajuda. O comando é administrativo, mas os botões podem ser usados por membros comuns e sempre respondem de forma efêmera.
 - `/suinder-admin perfil`: permite aprovar, suspender, banir, reativar e ver histórico de um perfil existente. O sistema bloqueia auto-suspensão e auto-banimento.
 - `/suinder-admin denuncias`: permite listar denúncias abertas, ver detalhes, marcar como resolvida, suspender usuário denunciado ou banir usuário denunciado.
-- `/suinder-admin config`: permite alterar canal de logs, canal de denúncias, aprovação manual de perfil, dias de expiração do pass, ativação de match e ativação de denúncias.
+- `/suinder-admin config`: permite alterar canal de logs, canal de denúncias, aprovação manual de perfil, dias de expiração do pass, limite diário de likes, ativação de match, ativação de denúncias e ativação de Super Like.
 
-A estabilização da V1 garante que `match_enabled=false` bloqueia curtidas e ações comuns de matches, `reports_enabled=false` bloqueia denúncias comuns, ações comuns exigem perfil ativo, botões antigos continuam revalidados no servidor e updates críticos de perfil filtram por `guild_id`.
+A estabilização da V1 garante que `match_enabled=false` bloqueia curtidas e ações comuns de matches, `reports_enabled=false` bloqueia denúncias comuns, `super_like_enabled=false` bloqueia Super Likes, ações comuns exigem perfil ativo, botões antigos e botões do painel público continuam revalidados no servidor e updates críticos de perfil filtram por `guild_id`.

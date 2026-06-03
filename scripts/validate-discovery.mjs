@@ -23,9 +23,10 @@ async function main() {
     'block.blocker_profile_id = target.id',
     'block.blocked_profile_id = $2',
     'from profile_actions action',
-    "action.action = 'like'",
+    "action.action in ('like', 'super_like')",
     "action.action = 'pass'",
-    'action.expires_at > now()'
+    'action.expires_at > now()',
+    '$3::text is null or $3 = any(target.looking_for)'
   ];
 
   for (const rule of requiredRepositoryRules) {
@@ -56,14 +57,15 @@ async function main() {
   assert(!discoveryFunction.includes('adminLogs.record'), 'Discovery view must not write admin audit logs');
 
   const requiredCommandPieces = [
-    'buildDiscoveryProfileEmbed(profile)',
-    'buildDiscoveryActionRows(profile)',
+    'buildDiscoveryProfileEmbed(profile, filter)',
+    'buildDiscoveryActionRows(profile, filter)',
     'ephemeral: true',
-    "buildDiscoveryButtonId('like', profile.id)",
-    "buildDiscoveryButtonId('pass', profile.id)",
-    "buildDiscoveryButtonId('block', profile.id)",
-    "buildDiscoveryButtonId('report', profile.id)",
-    "buildDiscoveryButtonId('next', profile.id)",
+    "buildDiscoveryButtonId('like', profile.id, filter)",
+    "buildDiscoveryButtonId('super_like', profile.id, filter)",
+    "buildDiscoveryButtonId('pass', profile.id, filter)",
+    "buildDiscoveryButtonId('block', profile.id, filter)",
+    "buildDiscoveryButtonId('report', profile.id, filter)",
+    "buildDiscoveryButtonId('next', profile.id, filter)",
     'handleDiscoveryLike',
     'handleDiscoveryReportSubmit',
     'Por segurança, o perfil denunciado foi bloqueado automaticamente'

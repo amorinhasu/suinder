@@ -1,10 +1,16 @@
 import {
+  CURRENT_TERMS_VERSION,
+  calculateCompatibility,
+  hasAcceptedCurrentTerms,
   parseAge,
+  parseCompatibilityAnswers,
   parseLookingFor,
   parseReceiveDm,
   validateAdultConsent,
   validateBio,
   validateNickname,
+  type LookingForOption,
+  type CompatibilityAnswers,
   type ProfileInput,
   type UserProfile
 } from '../../domain/profile.js';
@@ -21,8 +27,11 @@ export interface RawProfileFormInput {
   age: string;
   bio: string;
   lookingFor: string;
+  compatibilityAnswers: string;
   receiveDm: string;
   adultConsent: string;
+  termsAcceptedAt?: Date;
+  termsVersion?: string;
 }
 
 export class ProfileService {
@@ -33,6 +42,14 @@ export class ProfileService {
 
   public async getProfile(guildId: string, discordUserId: string): Promise<UserProfile | null> {
     return this.profiles.findByDiscordUser(guildId, discordUserId);
+  }
+
+  public hasAcceptedCurrentTerms(profile: UserProfile | null): boolean {
+    return Boolean(profile && hasAcceptedCurrentTerms(profile));
+  }
+
+  public async acceptTerms(guildId: string, discordUserId: string): Promise<UserProfile | null> {
+    return this.profiles.acceptTerms(guildId, discordUserId, CURRENT_TERMS_VERSION);
   }
 
   public async listActiveMatches(guildId: string, discordUserId: string): Promise<MatchSummary[]> {
@@ -109,7 +126,8 @@ export class ProfileService {
     discordUserId: string,
     matchId: string,
     reason: string,
-    details?: string
+    details?: string,
+    filter?: LookingForOption | null
   ): Promise<{ reportId: string; created: boolean; matches: MatchSummary[] }> {
     await this.ensureReportsEnabled(guildId);
     await this.profiles.consumeRateLimit(guildId, discordUserId, 'match_report', 10);
@@ -150,12 +168,14 @@ export class ProfileService {
     };
   }
 
-  public async findNextDiscoverableProfile(guildId: string, discordUserId: string): Promise<UserProfile | null> {
+  public async findNextDiscoverableProfile(guildId: string, discordUserId: string, filter?: LookingForOption | null): Promise<UserProfile | null> {
     const viewerProfile = await this.profiles.findByDiscordUser(guildId, discordUserId);
 
     if (!viewerProfile) {
       throw new Error('Você precisa criar um perfil antes de descobrir outros perfis.');
     }
+
+    this.ensureCurrentTerms(viewerProfile);
 
     if (viewerProfile.status !== 'active') {
       throw new Error('Seu perfil precisa estar ativo para usar a descoberta.');
@@ -165,13 +185,14 @@ export class ProfileService {
       throw new Error('Seu perfil precisa estar completo, com +18, consentimento e interesses válidos.');
     }
 
-    return this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id);
+    return this.withCompatibility(viewerProfile, await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id, filter));
   }
 
   public async likeDiscoveredProfile(
     guildId: string,
     discordUserId: string,
-    targetProfileId: string
+    targetProfileId: string,
+    filter?: LookingForOption | null
   ): Promise<{ matched: boolean; matchCreated: boolean; matchId: string | null; targetProfile: UserProfile; nextProfile: UserProfile | null }> {
     await this.ensureMatchEnabled(guildId);
     await this.profiles.consumeRateLimit(guildId, discordUserId, 'discovery_like', 30);
@@ -181,7 +202,7 @@ export class ProfileService {
       throw new Error('Este perfil não está elegível para curtida.');
     }
 
-    const like = await this.profiles.recordLikeAndMaybeCreateMatch(guildId, viewerProfile.id, targetProfile.id);
+    const like = await this.profiles.recordLikeAndMaybeCreateMatch(guildId, discordUserId, viewerProfile.id, targetProfile.id);
 
     if (like.matchCreated) {
       await this.adminLogs.record({
@@ -199,18 +220,60 @@ export class ProfileService {
       matchCreated: like.matchCreated,
       matchId: like.matchId,
       targetProfile,
-      nextProfile: await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id)
+      nextProfile: this.withCompatibility(viewerProfile, await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id, filter))
     };
   }
 
-  public async passDiscoveredProfile(guildId: string, discordUserId: string, targetProfileId: string): Promise<UserProfile | null> {
+  public async superLikeDiscoveredProfile(
+    guildId: string,
+    discordUserId: string,
+    targetProfileId: string,
+    filter?: LookingForOption | null
+  ): Promise<{ matched: boolean; matchCreated: boolean; matchId: string | null; targetProfile: UserProfile; nextProfile: UserProfile | null }> {
+    await this.ensureMatchEnabled(guildId);
+    await this.ensureSuperLikeEnabled(guildId);
+    await this.profiles.consumeRateLimit(guildId, discordUserId, 'discovery_super_like', 10);
+    const { viewerProfile, targetProfile } = await this.resolveDiscoveryActionProfiles(guildId, discordUserId, targetProfileId);
+
+    if (!isEligibleDiscoveryTarget(targetProfile)) {
+      throw new Error('Este perfil não está elegível para Super Like.');
+    }
+
+    const superLike = await this.profiles.recordSuperLikeAndMaybeCreateMatch(
+      guildId,
+      discordUserId,
+      viewerProfile.id,
+      targetProfile.id
+    );
+
+    if (superLike.matchCreated) {
+      await this.adminLogs.record({
+        guildId,
+        action: 'match.super_created',
+        actorDiscordUserId: discordUserId,
+        targetProfileId: targetProfile.id,
+        metadata: { matchId: superLike.matchId, isSuperMatch: true },
+        message: 'Super Match criado no SUÍNDER.'
+      });
+    }
+
+    return {
+      matched: superLike.matched,
+      matchCreated: superLike.matchCreated,
+      matchId: superLike.matchId,
+      targetProfile,
+      nextProfile: this.withCompatibility(viewerProfile, await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id, filter))
+    };
+  }
+
+  public async passDiscoveredProfile(guildId: string, discordUserId: string, targetProfileId: string, filter?: LookingForOption | null): Promise<UserProfile | null> {
     await this.profiles.consumeRateLimit(guildId, discordUserId, 'discovery_action', 30);
     const { viewerProfile, targetProfile } = await this.resolveDiscoveryActionProfiles(guildId, discordUserId, targetProfileId);
     await this.profiles.recordPass(guildId, viewerProfile.id, targetProfile.id);
-    return this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id);
+    return this.withCompatibility(viewerProfile, await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id, filter));
   }
 
-  public async blockDiscoveredProfile(guildId: string, discordUserId: string, targetProfileId: string): Promise<UserProfile | null> {
+  public async blockDiscoveredProfile(guildId: string, discordUserId: string, targetProfileId: string, filter?: LookingForOption | null): Promise<UserProfile | null> {
     await this.profiles.consumeRateLimit(guildId, discordUserId, 'discovery_action', 30);
     const { viewerProfile, targetProfile } = await this.resolveDiscoveryActionProfiles(guildId, discordUserId, targetProfileId);
     await this.profiles.blockProfile(guildId, viewerProfile.id, targetProfile.id);
@@ -223,7 +286,7 @@ export class ProfileService {
       message: 'Usuário bloqueou outro perfil no SUÍNDER.'
     });
 
-    return this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id);
+    return this.withCompatibility(viewerProfile, await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id, filter));
   }
 
   public async reportDiscoveredProfile(
@@ -231,7 +294,8 @@ export class ProfileService {
     discordUserId: string,
     targetProfileId: string,
     reason: string,
-    details?: string
+    details?: string,
+    filter?: LookingForOption | null
   ): Promise<{ reportId: string; created: boolean; nextProfile: UserProfile | null }> {
     await this.ensureReportsEnabled(guildId);
     await this.profiles.consumeRateLimit(guildId, discordUserId, 'discovery_report', 10);
@@ -262,7 +326,7 @@ export class ProfileService {
     return {
       reportId: report.id,
       created: report.created,
-      nextProfile: await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id)
+      nextProfile: this.withCompatibility(viewerProfile, await this.profiles.findNextDiscoverableProfile(guildId, viewerProfile.id, filter))
     };
   }
 
@@ -273,6 +337,7 @@ export class ProfileService {
     }
 
     const profileInput = normalizeProfileInput(input);
+    this.ensureCurrentTermsInput(profileInput);
     const requireReview = await this.profiles.shouldRequireProfileReview(input.guildId);
     const profile = await this.profiles.create(profileInput, requireReview ? 'pending_review' : 'active');
 
@@ -295,6 +360,7 @@ export class ProfileService {
       age: profileInput.age,
       bio: profileInput.bio,
       lookingFor: profileInput.lookingFor,
+      compatibilityAnswers: profileInput.compatibilityAnswers,
       receiveDm: profileInput.receiveDm,
       consentedAt: profileInput.consentedAt
     });
@@ -358,10 +424,40 @@ export class ProfileService {
     }
   }
 
+  public async ensureSuperLikeEnabled(guildId: string): Promise<void> {
+    if (!await this.profiles.isSuperLikeEnabled(guildId)) {
+      throw new Error('O Super Like está desativado neste servidor.');
+    }
+  }
+
   public async ensureReportsEnabled(guildId: string): Promise<void> {
     if (!await this.profiles.areReportsEnabled(guildId)) {
       throw new Error('O sistema de denúncias está desativado neste servidor.');
     }
+  }
+
+
+  private ensureCurrentTerms(profile: UserProfile): void {
+    if (!hasAcceptedCurrentTerms(profile)) {
+      throw new Error('Você precisa aceitar os termos atuais do SUÍNDER antes de continuar.');
+    }
+  }
+
+  private ensureCurrentTermsInput(input: ProfileInput): void {
+    if (input.termsVersion !== CURRENT_TERMS_VERSION || !input.termsAcceptedAt) {
+      throw new Error('Aceite os termos atuais do SUÍNDER antes de criar seu perfil.');
+    }
+  }
+
+  private withCompatibility(viewerProfile: UserProfile, targetProfile: UserProfile | null): UserProfile | null {
+    if (!targetProfile) {
+      return null;
+    }
+
+    return {
+      ...targetProfile,
+      compatibility: calculateCompatibility(viewerProfile, targetProfile)
+    };
   }
 
   private async resolveActiveProfile(guildId: string, discordUserId: string, actionDescription: string): Promise<UserProfile> {
@@ -369,6 +465,8 @@ export class ProfileService {
     if (!viewerProfile) {
       throw new Error(`Você precisa criar um perfil antes de ${actionDescription}.`);
     }
+
+    this.ensureCurrentTerms(viewerProfile);
 
     if (viewerProfile.status !== 'active') {
       throw new Error(`Seu perfil precisa estar ativo para ${actionDescription}.`);
@@ -386,6 +484,8 @@ export class ProfileService {
     if (!viewerProfile) {
       throw new Error('Você precisa criar um perfil antes de usar ações da descoberta.');
     }
+
+    this.ensureCurrentTerms(viewerProfile);
 
     if (viewerProfile.status !== 'active') {
       throw new Error('Seu perfil precisa estar ativo para usar ações da descoberta.');
@@ -408,11 +508,13 @@ function isEligibleDiscoveryTarget(profile: UserProfile): boolean {
   return profile.status === 'active'
     && (profile.age ?? 0) >= 18
     && Boolean(profile.consentedAt)
+    && hasAcceptedCurrentTerms(profile)
     && profile.lookingFor.length > 0;
 }
 
 function normalizeProfileInput(input: RawProfileFormInput): ProfileInput {
   validateAdultConsent(input.adultConsent);
+  const compatibilityAnswers: CompatibilityAnswers = parseCompatibilityAnswers(input.compatibilityAnswers);
 
   return {
     guildId: input.guildId,
@@ -421,6 +523,9 @@ function normalizeProfileInput(input: RawProfileFormInput): ProfileInput {
     age: parseAge(input.age),
     bio: validateBio(input.bio),
     lookingFor: parseLookingFor(input.lookingFor),
+    compatibilityAnswers,
+    termsAcceptedAt: input.termsAcceptedAt ?? new Date(0),
+    termsVersion: input.termsVersion ?? '',
     receiveDm: parseReceiveDm(input.receiveDm),
     avatarUrl: input.avatarUrl,
     consentedAt: new Date()

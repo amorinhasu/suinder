@@ -15,11 +15,20 @@ import {
 import type { AppContext } from '../../application/context.js';
 import type { MatchSummary, RawProfileFormInput } from '../../application/services/profile-service.js';
 import {
+  COMPATIBILITY_QUESTIONS,
+  CURRENT_TERMS_VERSION,
   LOOKING_FOR_OPTIONS,
+  type CompatibilityAnswers,
+  type LookingForOption,
   PROFILE_BIO_MAX_LENGTH,
   PROFILE_NICKNAME_MAX_LENGTH,
   type UserProfile
 } from '../../domain/profile.js';
+import {
+  buildPublicPanelActionRows,
+  parsePublicPanelButtonId
+} from '../public-panel.js';
+import { applyVisualBanner } from '../visual-assets.js';
 import type { SlashCommand } from './types.js';
 
 const PROFILE_CREATE_BUTTON_ID = 'suinder:profile:create';
@@ -31,8 +40,19 @@ const PROFILE_CREATE_MODAL_ID = 'suinder:profile:create-modal';
 const PROFILE_EDIT_MODAL_ID = 'suinder:profile:edit-modal';
 const DISCOVERY_REPORT_MODAL_PREFIX = 'suinder:discover-report';
 const MATCH_REPORT_MODAL_PREFIX = 'suinder:match-report';
+const DM_TEST_BUTTON_ID = 'suinder:dm:test';
+const TERMS_ACCEPT_BUTTON_ID = 'suinder:terms:accept';
+const TERMS_DECLINE_BUTTON_ID = 'suinder:terms:decline';
+const pendingTermsAcceptances = new Set<string>();
 type MatchAction = 'view' | 'unmatch' | 'block' | 'report';
-type DiscoveryAction = 'like' | 'pass' | 'block' | 'report' | 'next';
+type DiscoveryAction = 'like' | 'super_like' | 'pass' | 'block' | 'report' | 'next';
+type SuinderUserInteraction = ChatInputCommandInteraction | ButtonInteraction;
+type DiscoveryFilter = LookingForOption | 'Todos';
+
+const discoveryFilterChoices = [
+  { name: 'Todos', value: 'Todos' },
+  ...LOOKING_FOR_OPTIONS.map((option) => ({ name: option, value: option }))
+] as const;
 
 const reportCategories = [
   { name: 'Assédio', value: 'harassment' },
@@ -77,6 +97,13 @@ export const suinderCommand: SlashCommand = {
       subcommand
         .setName('descobrir')
         .setDescription('Mostra um perfil elegível para descoberta')
+        .addStringOption((option) =>
+          option
+            .setName('filtro')
+            .setDescription('Filtra a descoberta desta sessão por interesse')
+            .setRequired(false)
+            .addChoices(...discoveryFilterChoices)
+        )
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -123,7 +150,7 @@ export const suinderCommand: SlashCommand = {
 
     if (subcommand === 'iniciar') {
       await interaction.reply({
-        content: buildStartPanel(),
+        embeds: [buildStartPanelEmbed()],
         components: [buildCreateProfileActionRow()],
         ephemeral: true
       });
@@ -136,7 +163,7 @@ export const suinderCommand: SlashCommand = {
     }
 
     if (subcommand === 'descobrir') {
-      await showDiscoverableProfile(interaction, context);
+      await showDiscoverableProfile(interaction, context, parseDiscoveryFilter(interaction.options.getString('filtro')));
       return;
     }
 
@@ -146,18 +173,7 @@ export const suinderCommand: SlashCommand = {
     }
 
     if (subcommand === 'pausar') {
-      const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
-      const profile = await context.profiles.getProfile(guildId, interaction.user.id);
-      if (!profile) {
-        await interaction.reply({ content: 'Você ainda não tem perfil para pausar. Use `/suinder perfil` para criar.', ephemeral: true });
-        return;
-      }
-
-      const updatedProfile = await context.profiles.pauseProfile(profile);
-      await interaction.reply({
-        content: `⏸️ Perfil pausado. Status atual: **${formatStatus(updatedProfile.status)}**.`,
-        ephemeral: true
-      });
+      await toggleProfilePause(interaction, context);
       return;
     }
 
@@ -203,11 +219,26 @@ export const suinderCommand: SlashCommand = {
 };
 
 export async function handleSuinderButton(interaction: ButtonInteraction, context: AppContext): Promise<boolean> {
-  if (!interaction.customId.startsWith('suinder:profile:') && !interaction.customId.startsWith('suinder:discover:') && !interaction.customId.startsWith('suinder:match:')) {
+  if (!interaction.customId.startsWith('suinder:profile:') && !interaction.customId.startsWith('suinder:discover:') && !interaction.customId.startsWith('suinder:match:') && !interaction.customId.startsWith('suinder:public:') && interaction.customId !== DM_TEST_BUTTON_ID) {
     return false;
   }
 
   if (!(await ensureConfiguredGuild(interaction, context))) {
+    return true;
+  }
+
+  if (interaction.customId === DM_TEST_BUTTON_ID) {
+    await handleDmTestButton(interaction, context);
+    return true;
+  }
+
+  if (interaction.customId === TERMS_ACCEPT_BUTTON_ID || interaction.customId === TERMS_DECLINE_BUTTON_ID) {
+    await handleTermsButton(interaction, context);
+    return true;
+  }
+
+  if (interaction.customId.startsWith('suinder:public:')) {
+    await handlePublicPanelButton(interaction, context);
     return true;
   }
 
@@ -225,7 +256,21 @@ export async function handleSuinderButton(interaction: ButtonInteraction, contex
     const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
     const existingProfile = await context.profiles.getProfile(guildId, interaction.user.id);
     if (existingProfile) {
+      if (!context.profiles.hasAcceptedCurrentTerms(existingProfile)) {
+        await showTermsPanel(interaction);
+        return true;
+      }
+
       await interaction.reply({ content: 'Você já possui um perfil. Use `/suinder perfil` para editar ou gerenciar.', ephemeral: true });
+      return true;
+    }
+
+    if (!hasPendingTermsAcceptance(guildId, interaction.user.id)) {
+      await showTermsPanel(interaction);
+      return true;
+    }
+
+    if (!await ensureDmCapability(interaction, context)) {
       return true;
     }
 
@@ -240,6 +285,11 @@ export async function handleSuinderButton(interaction: ButtonInteraction, contex
     return true;
   }
 
+  if (!context.profiles.hasAcceptedCurrentTerms(profile)) {
+    await showTermsPanel(interaction);
+    return true;
+  }
+
   if (interaction.customId === PROFILE_EDIT_BUTTON_ID) {
     await interaction.showModal(buildProfileModal('edit', profile));
     return true;
@@ -247,13 +297,17 @@ export async function handleSuinderButton(interaction: ButtonInteraction, contex
 
   if (interaction.customId === PROFILE_PAUSE_BUTTON_ID) {
     const updatedProfile = await context.profiles.pauseProfile(profile);
-    await interaction.update({ content: buildProfilePanel(updatedProfile), components: buildProfileActionRows(updatedProfile) });
+    await interaction.update({ embeds: [buildProfilePanelEmbed(updatedProfile)], components: buildProfileActionRows(updatedProfile) });
     return true;
   }
 
   if (interaction.customId === PROFILE_REACTIVATE_BUTTON_ID) {
+    if (!await ensureDmCapability(interaction, context)) {
+      return true;
+    }
+
     const updatedProfile = await context.profiles.reactivateProfile(profile);
-    await interaction.update({ content: buildProfilePanel(updatedProfile), components: buildProfileActionRows(updatedProfile) });
+    await interaction.update({ embeds: [buildProfilePanelEmbed(updatedProfile)], components: buildProfileActionRows(updatedProfile) });
     return true;
   }
 
@@ -261,12 +315,211 @@ export async function handleSuinderButton(interaction: ButtonInteraction, contex
     await context.profiles.deleteProfile(profile);
     await interaction.update({
       content: '🗑️ Seu perfil foi excluído. Você poderá criar um novo perfil usando `/suinder perfil`.',
+      embeds: [buildCreateProfileEmbed()],
       components: [buildCreateProfileActionRow()]
     });
     return true;
   }
 
   return false;
+}
+
+
+
+
+async function handleTermsButton(interaction: ButtonInteraction, context: AppContext): Promise<void> {
+  const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
+
+  if (interaction.customId === TERMS_DECLINE_BUTTON_ID) {
+    clearPendingTermsAcceptance(guildId, interaction.user.id);
+    await interaction.update({
+      content: 'Tudo bem. Sem aceitar os termos, não é possível participar do SUÍNDER.',
+      embeds: [],
+      components: []
+    });
+    return;
+  }
+
+  markPendingTermsAcceptance(guildId, interaction.user.id);
+  const profile = await context.profiles.acceptTerms(guildId, interaction.user.id);
+  if (profile) {
+    await interaction.update({
+      content: '✅ Termos aceitos. Você já pode continuar usando o SUÍNDER.',
+      embeds: [buildProfilePanelEmbed(profile)],
+      components: buildProfileActionRows(profile)
+    });
+    return;
+  }
+
+  if (!await ensureDmCapability(interaction, context)) {
+    return;
+  }
+
+  await interaction.showModal(buildProfileModal('create'));
+}
+
+async function showTermsPanel(interaction: SuinderUserInteraction): Promise<void> {
+  await interaction.reply({
+    embeds: [buildTermsEmbed()],
+    components: [buildTermsActionRow()],
+    ephemeral: true
+  });
+}
+
+function markPendingTermsAcceptance(guildId: string, discordUserId: string): void {
+  pendingTermsAcceptances.add(`${guildId}:${discordUserId}:${CURRENT_TERMS_VERSION}`);
+}
+
+function hasPendingTermsAcceptance(guildId: string, discordUserId: string): boolean {
+  return pendingTermsAcceptances.has(`${guildId}:${discordUserId}:${CURRENT_TERMS_VERSION}`);
+}
+
+function clearPendingTermsAcceptance(guildId: string, discordUserId: string): void {
+  pendingTermsAcceptances.delete(`${guildId}:${discordUserId}:${CURRENT_TERMS_VERSION}`);
+}
+
+async function handleDmTestButton(interaction: ButtonInteraction, context: AppContext): Promise<void> {
+  if (!await ensureDmCapability(interaction, context)) {
+    return;
+  }
+
+  await interaction.reply({
+    content: '✅ DM verificada com sucesso. Você já pode voltar ao SUÍNDER e tentar a ação novamente.',
+    ephemeral: true
+  });
+}
+
+async function ensureDmCapability(
+  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
+  context: AppContext
+): Promise<boolean> {
+  try {
+    const user = await context.client.users.fetch(interaction.user.id);
+    await user.send({ content: buildDmVerificationMessage() });
+    return true;
+  } catch (error) {
+    context.logger.warn('Failed to verify SUINDER DM capability', {
+      discordUserId: interaction.user.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+
+    await replyDmVerificationFailed(interaction);
+    return false;
+  }
+}
+
+async function replyDmVerificationFailed(
+  interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction
+): Promise<void> {
+  const response = {
+    content: buildDmVerificationFailureMessage(),
+    components: [buildDmRetryActionRow()],
+    ephemeral: true
+  };
+
+  if (interaction.replied || interaction.deferred) {
+    await interaction.followUp(response);
+    return;
+  }
+
+  await interaction.reply(response);
+}
+
+function buildDmVerificationMessage(): string {
+  return [
+    '💚 Bem-vindo ao SUÍNDER.',
+    '',
+    'Esta é uma mensagem de verificação.',
+    'Se você recebeu este aviso, sua conta está pronta para participar.'
+  ].join('\n');
+}
+
+function buildDmVerificationFailureMessage(): string {
+  return [
+    '⚠️ Não foi possível enviar uma mensagem privada para você.',
+    '',
+    'O SUÍNDER utiliza mensagens privadas para:',
+    '• Matches',
+    '• Super Likes',
+    '• Suíte às Cegas',
+    '',
+    'Ative suas DMs e tente novamente.'
+  ].join('\n');
+}
+
+function buildDmRetryActionRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(DM_TEST_BUTTON_ID)
+      .setLabel('Testar Novamente')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
+async function handlePublicPanelButton(interaction: ButtonInteraction, context: AppContext): Promise<void> {
+  const action = parsePublicPanelButtonId(interaction.customId);
+  if (!action) {
+    await interaction.reply({ content: 'Botão do painel público inválido.', ephemeral: true });
+    return;
+  }
+
+  if (action === 'profile') {
+    await showProfilePanel(interaction, context);
+    return;
+  }
+
+  if (action === 'discover') {
+    await showDiscoverableProfile(interaction, context, 'Todos');
+    return;
+  }
+
+  if (action === 'matches') {
+    await showMatches(interaction, context);
+    return;
+  }
+
+  if (action.startsWith('filter_')) {
+    await showDiscoverableProfile(interaction, context, parsePublicDiscoveryFilter(action));
+    return;
+  }
+
+  if (action === 'pause') {
+    await toggleProfilePause(interaction, context);
+    return;
+  }
+
+  await interaction.reply({
+    embeds: [buildPublicPanelHelpEmbed()],
+    components: buildPublicPanelActionRows(),
+    ephemeral: true
+  });
+}
+
+async function toggleProfilePause(interaction: SuinderUserInteraction, context: AppContext): Promise<void> {
+  const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
+  const profile = await context.profiles.getProfile(guildId, interaction.user.id);
+  if (!profile) {
+    await interaction.reply({ content: 'Você ainda não tem perfil para pausar ou reativar. Use `/suinder perfil` para criar.', ephemeral: true });
+    return;
+  }
+
+  if (profile.status === 'paused' && !await ensureDmCapability(interaction, context)) {
+    return;
+  }
+
+  const updatedProfile = profile.status === 'paused'
+    ? await context.profiles.reactivateProfile(profile)
+    : await context.profiles.pauseProfile(profile);
+  const message = updatedProfile.status === 'paused'
+    ? '⏸️ Perfil pausado. Ele não aparecerá na descoberta enquanto estiver pausado.'
+    : '▶️ Perfil reativado. O status atualizado já está refletido abaixo.';
+
+  await interaction.reply({
+    content: message,
+    embeds: [buildProfilePanelEmbed(updatedProfile)],
+    components: buildProfileActionRows(updatedProfile),
+    ephemeral: true
+  });
 }
 
 export async function handleSuinderModalSubmit(interaction: ModalSubmitInteraction, context: AppContext): Promise<boolean> {
@@ -305,17 +558,30 @@ export async function handleSuinderModalSubmit(interaction: ModalSubmitInteracti
     age: interaction.fields.getTextInputValue('age'),
     bio: interaction.fields.getTextInputValue('bio'),
     lookingFor: interaction.fields.getTextInputValue('looking_for'),
+    compatibilityAnswers: dmAndConsent.compatibilityAnswers,
     receiveDm: dmAndConsent.receiveDm,
-    adultConsent: dmAndConsent.adultConsent
+    adultConsent: dmAndConsent.adultConsent,
+    termsAcceptedAt: hasPendingTermsAcceptance(interaction.guildId ?? context.config.DISCORD_GUILD_ID, interaction.user.id) ? new Date() : undefined,
+    termsVersion: hasPendingTermsAcceptance(interaction.guildId ?? context.config.DISCORD_GUILD_ID, interaction.user.id) ? CURRENT_TERMS_VERSION : undefined
   };
 
   try {
+    if (interaction.customId === PROFILE_CREATE_MODAL_ID && !await ensureDmCapability(interaction, context)) {
+      return true;
+    }
+
+    if (interaction.customId === PROFILE_CREATE_MODAL_ID && !hasPendingTermsAcceptance(input.guildId, interaction.user.id)) {
+      throw new Error('Aceite os termos atuais do SUÍNDER antes de criar seu perfil.');
+    }
+
     const profile = interaction.customId === PROFILE_CREATE_MODAL_ID
       ? await context.profiles.createProfile(input)
       : await updateExistingProfile(interaction, context, input);
 
+    clearPendingTermsAcceptance(input.guildId, interaction.user.id);
+
     await interaction.reply({
-      content: buildProfilePanel(profile),
+      embeds: [buildProfilePanelEmbed(profile)],
       components: buildProfileActionRows(profile),
       ephemeral: true
     });
@@ -343,44 +609,49 @@ async function updateExistingProfile(
   return context.profiles.updateProfile(profile.id, input);
 }
 
-async function showProfilePanel(interaction: ChatInputCommandInteraction, context: AppContext): Promise<void> {
+async function showProfilePanel(interaction: SuinderUserInteraction, context: AppContext): Promise<void> {
   const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
   const profile = await context.profiles.getProfile(guildId, interaction.user.id);
 
   if (!profile) {
+    if (!hasPendingTermsAcceptance(guildId, interaction.user.id)) {
+      await showTermsPanel(interaction);
+      return;
+    }
+
     await interaction.reply({
-      content: [
-        '👤 Você ainda não tem perfil no SUÍNDER.',
-        '',
-        'A criação é opcional, restrita a pessoas **+18**, e usa seu avatar atual do Discord como foto padrão.',
-        'Clique no botão abaixo para abrir o formulário efêmero de criação.'
-      ].join('\n'),
+      embeds: [buildCreateProfileEmbed()],
       components: [buildCreateProfileActionRow()],
       ephemeral: true
     });
     return;
   }
 
+  if (!context.profiles.hasAcceptedCurrentTerms(profile)) {
+    await showTermsPanel(interaction);
+    return;
+  }
+
   await interaction.reply({
-    content: buildProfilePanel(profile),
+    embeds: [buildProfilePanelEmbed(profile)],
     components: buildProfileActionRows(profile),
     ephemeral: true
   });
 }
 
-async function showDiscoverableProfile(interaction: ChatInputCommandInteraction, context: AppContext): Promise<void> {
+async function showDiscoverableProfile(interaction: SuinderUserInteraction, context: AppContext, filter: DiscoveryFilter = 'Todos'): Promise<void> {
   const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
 
+  if (!await ensureDmCapability(interaction, context)) {
+    return;
+  }
+
   try {
-    const profile = await context.profiles.findNextDiscoverableProfile(guildId, interaction.user.id);
+    const profile = await context.profiles.findNextDiscoverableProfile(guildId, interaction.user.id, normalizeDiscoveryFilter(filter));
 
     if (!profile) {
       await interaction.reply({
-        content: [
-          '🔎 Nenhum perfil elegível encontrado agora.',
-          '',
-          'Perfis pausados, pendentes, suspensos, banidos, deletados, bloqueados ou já passados não aparecem na descoberta.'
-        ].join('\n'),
+        embeds: [buildNoProfilesEmbed(filter)],
         ephemeral: true
       });
       return;
@@ -388,8 +659,8 @@ async function showDiscoverableProfile(interaction: ChatInputCommandInteraction,
 
     await interaction.reply({
       content: '🔎 Perfil encontrado. Esta visualização é efêmera e não registra log administrativo.',
-      embeds: [buildDiscoveryProfileEmbed(profile)],
-      components: buildDiscoveryActionRows(profile),
+      embeds: [buildDiscoveryProfileEmbed(profile, filter)],
+      components: buildDiscoveryActionRows(profile, filter),
       ephemeral: true
     });
   } catch (error) {
@@ -401,7 +672,7 @@ async function showDiscoverableProfile(interaction: ChatInputCommandInteraction,
 }
 
 
-async function showMatches(interaction: ChatInputCommandInteraction, context: AppContext): Promise<void> {
+async function showMatches(interaction: SuinderUserInteraction, context: AppContext): Promise<void> {
   const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
 
   try {
@@ -409,11 +680,7 @@ async function showMatches(interaction: ChatInputCommandInteraction, context: Ap
 
     if (matches.length === 0) {
       await interaction.reply({
-        content: [
-          '💞 Você ainda não tem matches ativos no SUÍNDER.',
-          '',
-          'Quando uma curtida for recíproca, o match aparecerá aqui. Matches bloqueados, deletados ou encerrados não são exibidos.'
-        ].join('\n'),
+        embeds: [buildNoMatchesEmbed()],
         ephemeral: true
       });
       return;
@@ -431,6 +698,15 @@ async function showMatches(interaction: ChatInputCommandInteraction, context: Ap
       ephemeral: true
     });
   }
+}
+
+function buildNoMatchesEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Sem matches ativos no SUÍNDER')
+    .setDescription('Quando uma curtida for recíproca, o match aparecerá aqui. Matches bloqueados, deletados ou encerrados não são exibidos.')
+    .setColor(0xff5c8a);
+
+  return applyVisualBanner(embed, 'BANNER_MATCHES');
 }
 
 function buildMatchesEmbed(matches: MatchSummary[]): EmbedBuilder {
@@ -452,7 +728,7 @@ function buildMatchesEmbed(matches: MatchSummary[]): EmbedBuilder {
     });
   }
 
-  return embed;
+  return applyVisualBanner(embed, 'BANNER_MATCHES');
 }
 
 function buildMatchProfileEmbed(match: MatchSummary): EmbedBuilder {
@@ -470,10 +746,10 @@ function buildMatchProfileEmbed(match: MatchSummary): EmbedBuilder {
     .setColor(0xff5c8a);
 
   if (profile.avatarUrl) {
-    embed.setImage(profile.avatarUrl);
+    embed.setThumbnail(profile.avatarUrl);
   }
 
-  return embed;
+  return applyVisualBanner(embed, 'BANNER_MATCH');
 }
 
 function buildMatchActionRows(matches: MatchSummary[]): ActionRowBuilder<ButtonBuilder>[] {
@@ -497,73 +773,163 @@ function buildMatchActionRows(matches: MatchSummary[]): ActionRowBuilder<ButtonB
   ));
 }
 
-function buildStartPanel(): string {
-  return [
-    '💘 **SUÍNDER — Conexões sociais da comunidade Suíte**',
-    '',
-    '• Participar é **opcional**.',
-    '• A V1 é restrita a pessoas **+18**.',
-    '• O foco é conexão social: romance, amizades, jogos, filmes/séries, música, calls e conversas.',
-    '• A V1 já possui perfil, descoberta, curtida, match, bloqueio e denúncia; não há modo anônimo, upload de imagem ou IA.',
-    '• Todas as ações deste painel são efêmeras.'
-  ].join('\n');
+function buildPublicPanelHelpEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Ajuda rápida do SUÍNDER')
+    .setDescription([
+      'Use **Criar/Ver Perfil** para criar ou gerenciar seu perfil.',
+      'Use **Descobrir Pessoas** para ver perfis elegíveis de forma efêmera.',
+      'Use **Meus Matches** para listar matches ativos.',
+      'Use **Pausar/Reativar Perfil** para controlar sua visibilidade na descoberta.',
+      'Você também pode usar os slash commands `/suinder perfil`, `/suinder descobrir`, `/suinder matches` e `/suinder pausar`.'
+    ].join('\n'))
+    .setColor(0xff5c8a);
+
+  return applyVisualBanner(embed, 'BANNER_INICIAL');
 }
 
-function buildProfilePanel(profile: UserProfile): string {
-  return [
-    '👤 **Seu perfil SUÍNDER**',
-    '',
-    `**Apelido:** ${profile.displayName}`,
-    `**Idade:** ${profile.age ?? 'não informada'}`,
-    `**Bio:** ${profile.bio || 'Sem bio.'}`,
-    `**Procura:** ${profile.lookingFor.join(', ') || 'Não informado'}`,
-    `**Receber DM:** ${profile.receiveDm ? 'Sim' : 'Não'}`,
-    `**Foto padrão:** avatar atual do Discord${profile.avatarUrl ? ` (${profile.avatarUrl})` : ''}`,
-    `**Status:** ${formatStatus(profile.status)}`
-  ].join('\n');
+function buildStartPanelEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('SUÍNDER — Conexões sociais da comunidade Suíte')
+    .setDescription([
+      'Participar é **opcional**.',
+      'A V1 é restrita a pessoas **+18**.',
+      'O foco é conexão social: romance, amizades, jogos, filmes/séries, música, calls e conversas.',
+      'A V1 já possui perfil, descoberta, curtida, match, bloqueio e denúncia; não há modo anônimo, upload de imagem ou IA.',
+      'Todas as ações deste painel são efêmeras.'
+    ].join('\n'))
+    .setColor(0xff5c8a);
+
+  return applyVisualBanner(embed, 'BANNER_INICIAL');
 }
 
-function buildDiscoveryProfileEmbed(profile: UserProfile): EmbedBuilder {
+function buildCreateProfileEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Criar perfil SUÍNDER')
+    .setDescription([
+      'Você ainda não tem perfil no SUÍNDER.',
+      'A criação é opcional, restrita a pessoas **+18**, e usa seu avatar atual do Discord como foto padrão.',
+      'Clique no botão abaixo para abrir o formulário efêmero de criação.'
+    ].join('\n'))
+    .setColor(0xff5c8a);
+
+  return applyVisualBanner(embed, 'BANNER_CRIAR_PERFIL');
+}
+
+function buildProfilePanelEmbed(profile: UserProfile): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Seu perfil SUÍNDER')
+    .addFields(
+      { name: 'Apelido', value: profile.displayName, inline: true },
+      { name: 'Idade', value: String(profile.age ?? 'não informada'), inline: true },
+      { name: 'Bio', value: profile.bio || 'Sem bio.', inline: false },
+      { name: 'Procura', value: profile.lookingFor.join(', ') || 'Não informado', inline: false },
+      { name: 'Perguntas rápidas', value: formatCompatibilityAnswers(profile.compatibilityAnswers), inline: false },
+      { name: 'Receber DM', value: profile.receiveDm ? 'Sim' : 'Não', inline: true },
+      { name: 'Foto padrão', value: 'Avatar atual do Discord', inline: true },
+      { name: 'Status', value: formatStatus(profile.status), inline: true }
+    )
+    .setColor(0xff5c8a);
+
+  if (profile.avatarUrl) {
+    embed.setThumbnail(profile.avatarUrl);
+  }
+
+  return applyVisualBanner(embed, profile.status === 'paused' ? 'BANNER_PERFIL_PAUSADO' : 'BANNER_PERFIL');
+}
+
+function buildDiscoveryProfileEmbed(profile: UserProfile, filter: DiscoveryFilter = 'Todos'): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setTitle(profile.displayName)
     .setDescription(profile.bio || 'Sem bio.')
     .addFields(
       { name: 'Idade', value: String(profile.age ?? 'Não informada'), inline: true },
       { name: 'Procura', value: profile.lookingFor.join(', '), inline: false },
+      { name: 'Compatibilidade', value: formatCompatibility(profile), inline: false },
+      { name: 'Filtro da sessão', value: filter, inline: true },
       { name: 'Segurança', value: 'Respeite consentimento e limites. Use bloquear/denunciar se algo parecer inadequado.', inline: false }
     )
     .setColor(0xff5c8a);
 
   if (profile.avatarUrl) {
-    embed.setImage(profile.avatarUrl);
+    embed.setThumbnail(profile.avatarUrl);
   }
 
-  return embed;
+  return applyVisualBanner(embed, 'BANNER_DESCOBRIR');
 }
 
-function buildDiscoveryActionRows(profile: UserProfile): ActionRowBuilder<ButtonBuilder>[] {
+function buildMatchCreatedEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Deu match no SUÍNDER!')
+    .setDescription('Vocês se curtiram mutuamente. Tentamos enviar DM para as duas pessoas, mas a entrega pode falhar se alguém estiver com DM fechada.')
+    .setColor(0xff5c8a);
+
+  return applyVisualBanner(embed, 'BANNER_MATCH');
+}
+
+function buildSuperLikeSentEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Super Like enviado')
+    .setDescription('Seu Super Like semanal foi registrado. Se não houver match agora, a outra pessoa receberá um aviso especial sem revelar quem enviou.')
+    .setColor(0xffd700);
+
+  return applyVisualBanner(embed, 'BANNER_SUPER_LIKE');
+}
+
+function buildSuperLikeReceivedEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Você recebeu um Super Like')
+    .setDescription('Alguém demonstrou interesse especial em você no SUÍNDER.')
+    .setColor(0xffd700);
+
+  return applyVisualBanner(embed, 'BANNER_SUPER_LIKE');
+}
+
+function buildSuperMatchEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('SUPER MATCH!')
+    .setDescription('Agora vocês sabem quem se interessou. Conversem com respeito, consentimento e segurança.')
+    .setColor(0xffd700);
+
+  return applyVisualBanner(embed, 'BANNER_SUPER_MATCH');
+}
+
+function buildNoProfilesEmbed(filter: DiscoveryFilter = 'Todos'): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('Nenhum perfil elegível encontrado agora')
+    .setDescription(`Perfis pausados, pendentes, suspensos, banidos, deletados, bloqueados ou já passados não aparecem na descoberta. Filtro atual: ${filter}.`)
+    .setColor(0xff5c8a);
+
+  return applyVisualBanner(embed, 'BANNER_SEM_PERFIS');
+}
+
+function buildDiscoveryActionRows(profile: UserProfile, filter: DiscoveryFilter = 'Todos'): ActionRowBuilder<ButtonBuilder>[] {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(buildDiscoveryButtonId('like', profile.id))
+        .setCustomId(buildDiscoveryButtonId('like', profile.id, filter))
         .setLabel('Curtir')
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId(buildDiscoveryButtonId('pass', profile.id))
+        .setCustomId(buildDiscoveryButtonId('super_like', profile.id, filter))
+        .setLabel('⭐ Super Like')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(buildDiscoveryButtonId('pass', profile.id, filter))
         .setLabel('Passar')
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId(buildDiscoveryButtonId('next', profile.id))
+        .setCustomId(buildDiscoveryButtonId('next', profile.id, filter))
         .setLabel('Próximo')
         .setStyle(ButtonStyle.Secondary)
     ),
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(buildDiscoveryButtonId('block', profile.id))
+        .setCustomId(buildDiscoveryButtonId('block', profile.id, filter))
         .setLabel('Bloquear')
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
-        .setCustomId(buildDiscoveryButtonId('report', profile.id))
+        .setCustomId(buildDiscoveryButtonId('report', profile.id, filter))
         .setLabel('Denunciar')
         .setStyle(ButtonStyle.Danger)
     )
@@ -646,7 +1012,7 @@ async function updateMatchesMessage(interaction: ButtonInteraction, message: str
   if (matches.length === 0) {
     await interaction.update({
       content: `${message}\n\n💞 Você não tem outros matches ativos agora.`,
-      embeds: [],
+      embeds: [buildNoMatchesEmbed()],
       components: []
     });
     return;
@@ -663,7 +1029,7 @@ async function replyWithMatchesMessage(interaction: ModalSubmitInteraction, mess
   if (matches.length === 0) {
     await interaction.reply({
       content: `${message}\n\n💞 Você não tem outros matches ativos agora.`,
-      embeds: [],
+      embeds: [buildNoMatchesEmbed()],
       components: [],
       ephemeral: true
     });
@@ -686,25 +1052,30 @@ async function handleDiscoveryButton(interaction: ButtonInteraction, context: Ap
   }
 
   if (parsed.action === 'like') {
-    await handleDiscoveryLike(interaction, context, parsed.targetProfileId);
+    await handleDiscoveryLike(interaction, context, parsed.targetProfileId, parsed.filter);
+    return;
+  }
+
+  if (parsed.action === 'super_like') {
+    await handleDiscoverySuperLike(interaction, context, parsed.targetProfileId, parsed.filter);
     return;
   }
 
   if (parsed.action === 'report') {
-    await interaction.showModal(buildDiscoveryReportModal(parsed.targetProfileId));
+    await interaction.showModal(buildDiscoveryReportModal(parsed.targetProfileId, parsed.filter));
     return;
   }
 
   try {
     const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
     const nextProfile = parsed.action === 'block'
-      ? await context.profiles.blockDiscoveredProfile(guildId, interaction.user.id, parsed.targetProfileId)
-      : await context.profiles.passDiscoveredProfile(guildId, interaction.user.id, parsed.targetProfileId);
+      ? await context.profiles.blockDiscoveredProfile(guildId, interaction.user.id, parsed.targetProfileId, normalizeDiscoveryFilter(parsed.filter))
+      : await context.profiles.passDiscoveredProfile(guildId, interaction.user.id, parsed.targetProfileId, normalizeDiscoveryFilter(parsed.filter));
     const message = parsed.action === 'block'
       ? '🛡️ Bloqueio registrado. Esse perfil não aparecerá novamente e a descoberta em ambas as direções foi impedida.'
       : '➡️ Perfil descartado temporariamente. Ele não deve reaparecer enquanto o descarte estiver válido.';
 
-    await updateDiscoveryMessage(interaction, message, nextProfile);
+    await updateDiscoveryMessage(interaction, message, nextProfile, undefined, parsed.filter);
   } catch (error) {
     await interaction.reply({
       content: `⚠️ Não foi possível executar a ação: ${error instanceof Error ? error.message : String(error)}`,
@@ -713,10 +1084,14 @@ async function handleDiscoveryButton(interaction: ButtonInteraction, context: Ap
   }
 }
 
-async function handleDiscoveryLike(interaction: ButtonInteraction, context: AppContext, targetProfileId: string): Promise<void> {
+async function handleDiscoveryLike(interaction: ButtonInteraction, context: AppContext, targetProfileId: string, filter: DiscoveryFilter): Promise<void> {
+  if (!await ensureDmCapability(interaction, context)) {
+    return;
+  }
+
   try {
     const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
-    const result = await context.profiles.likeDiscoveredProfile(guildId, interaction.user.id, targetProfileId);
+    const result = await context.profiles.likeDiscoveredProfile(guildId, interaction.user.id, targetProfileId, normalizeDiscoveryFilter(filter));
 
     if (result.matched) {
       await sendMatchDms(context, interaction.user.id, result.targetProfile);
@@ -726,10 +1101,51 @@ async function handleDiscoveryLike(interaction: ButtonInteraction, context: AppC
       ? '💖 Deu match! Tentamos enviar DM para vocês dois, mas a entrega pode falhar se alguém estiver com DM fechada.'
       : '💌 Curtida enviada.';
 
-    await updateDiscoveryMessage(interaction, message, result.nextProfile);
+    await updateDiscoveryMessage(
+      interaction,
+      message,
+      result.nextProfile,
+      result.matched ? buildMatchCreatedEmbed() : undefined,
+      filter
+    );
   } catch (error) {
     await interaction.reply({
       content: `⚠️ Não foi possível curtir: ${error instanceof Error ? error.message : String(error)}`,
+      ephemeral: true
+    });
+  }
+}
+
+
+async function handleDiscoverySuperLike(interaction: ButtonInteraction, context: AppContext, targetProfileId: string, filter: DiscoveryFilter): Promise<void> {
+  if (!await ensureDmCapability(interaction, context)) {
+    return;
+  }
+
+  try {
+    const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
+    const result = await context.profiles.superLikeDiscoveredProfile(guildId, interaction.user.id, targetProfileId, normalizeDiscoveryFilter(filter));
+
+    if (result.matched) {
+      await sendSuperMatchDms(context, interaction.user.id, interaction.user.username, result.targetProfile);
+    } else {
+      await sendSuperLikeNoticeDm(context, result.targetProfile);
+    }
+
+    const message = result.matched
+      ? '✨ Super Match! Tentamos enviar DM para vocês dois, mas a entrega pode falhar se alguém estiver com DM fechada.'
+      : '⭐ Super Like enviado.';
+
+    await updateDiscoveryMessage(
+      interaction,
+      message,
+      result.nextProfile,
+      result.matched ? buildSuperMatchEmbed() : buildSuperLikeSentEmbed(),
+      filter
+    );
+  } catch (error) {
+    await interaction.reply({
+      content: `⚠️ Não foi possível enviar Super Like: ${error instanceof Error ? error.message : String(error)}`,
       ephemeral: true
     });
   }
@@ -756,8 +1172,43 @@ async function sendMatchDms(context: AppContext, actorDiscordUserId: string, tar
   }));
 }
 
+
+async function sendSuperLikeNoticeDm(context: AppContext, targetProfile: UserProfile): Promise<void> {
+  try {
+    const user = await context.client.users.fetch(targetProfile.discordUserId);
+    await user.send({
+      content: '⭐ Alguém demonstrou interesse especial em você no SUÍNDER.',
+      embeds: [buildSuperLikeReceivedEmbed()]
+    });
+  } catch (error) {
+    context.logger.warn('Failed to send super like DM', {
+      discordUserId: targetProfile.discordUserId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function sendSuperMatchDms(context: AppContext, actorDiscordUserId: string, actorDisplayName: string, targetProfile: UserProfile): Promise<void> {
+  const recipients = [actorDiscordUserId, targetProfile.discordUserId];
+  await Promise.all(recipients.map(async (discordUserId) => {
+    try {
+      const user = await context.client.users.fetch(discordUserId);
+      await user.send({
+        content: `✨ SUPER MATCH! Agora vocês sabem quem se interessou. ${actorDisplayName} enviou um Super Like no SUÍNDER.`,
+        embeds: [buildSuperMatchEmbed()]
+      });
+    } catch (error) {
+      context.logger.warn('Failed to send super match DM', {
+        discordUserId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }));
+}
+
 async function handleDiscoveryReportSubmit(interaction: ModalSubmitInteraction, context: AppContext): Promise<void> {
-  const targetProfileId = parseDiscoveryReportModalId(interaction.customId);
+  const parsedReport = parseDiscoveryReportModalId(interaction.customId);
+  const targetProfileId = parsedReport?.targetProfileId;
   if (!targetProfileId) {
     await interaction.reply({ content: 'Denúncia inválida.', ephemeral: true });
     return;
@@ -770,13 +1221,15 @@ async function handleDiscoveryReportSubmit(interaction: ModalSubmitInteraction, 
       interaction.user.id,
       targetProfileId,
       interaction.fields.getTextInputValue('report_reason'),
-      interaction.fields.getTextInputValue('report_details') || undefined
+      interaction.fields.getTextInputValue('report_details') || undefined,
+      normalizeDiscoveryFilter(parsedReport.filter)
     );
     const status = result.created ? 'Denúncia registrada.' : 'Você já tinha uma denúncia aberta para esse perfil.';
     await replyWithDiscoveryMessage(
       interaction,
       `🚩 ${status} Por segurança, o perfil denunciado foi bloqueado automaticamente para você.`,
-      result.nextProfile
+      result.nextProfile,
+      parsedReport.filter
     );
   } catch (error) {
     await interaction.reply({
@@ -786,13 +1239,19 @@ async function handleDiscoveryReportSubmit(interaction: ModalSubmitInteraction, 
   }
 }
 
-async function updateDiscoveryMessage(interaction: ButtonInteraction, message: string, nextProfile: UserProfile | null): Promise<void> {
+async function updateDiscoveryMessage(
+  interaction: ButtonInteraction,
+  message: string,
+  nextProfile: UserProfile | null,
+  statusEmbed?: EmbedBuilder,
+  filter: DiscoveryFilter = 'Todos'
+): Promise<void> {
   if (!nextProfile) {
     await interaction.update({
       content: `${message}
 
 🔎 Nenhum outro perfil elegível encontrado agora.`,
-      embeds: [],
+      embeds: statusEmbed ? [statusEmbed, buildNoProfilesEmbed(filter)] : [buildNoProfilesEmbed(filter)],
       components: []
     });
     return;
@@ -802,18 +1261,18 @@ async function updateDiscoveryMessage(interaction: ButtonInteraction, message: s
     content: `${message}
 
 🔎 Próximo perfil elegível:`,
-    embeds: [buildDiscoveryProfileEmbed(nextProfile)],
-    components: buildDiscoveryActionRows(nextProfile)
+    embeds: statusEmbed ? [statusEmbed, buildDiscoveryProfileEmbed(nextProfile, filter)] : [buildDiscoveryProfileEmbed(nextProfile, filter)],
+    components: buildDiscoveryActionRows(nextProfile, filter)
   });
 }
 
-async function replyWithDiscoveryMessage(interaction: ModalSubmitInteraction, message: string, nextProfile: UserProfile | null): Promise<void> {
+async function replyWithDiscoveryMessage(interaction: ModalSubmitInteraction, message: string, nextProfile: UserProfile | null, filter: DiscoveryFilter = 'Todos'): Promise<void> {
   if (!nextProfile) {
     await interaction.reply({
       content: `${message}
 
 🔎 Nenhum outro perfil elegível encontrado agora.`,
-      embeds: [],
+      embeds: [buildNoProfilesEmbed(filter)],
       components: [],
       ephemeral: true
     });
@@ -824,8 +1283,8 @@ async function replyWithDiscoveryMessage(interaction: ModalSubmitInteraction, me
     content: `${message}
 
 🔎 Próximo perfil elegível:`,
-    embeds: [buildDiscoveryProfileEmbed(nextProfile)],
-    components: buildDiscoveryActionRows(nextProfile),
+    embeds: [buildDiscoveryProfileEmbed(nextProfile, filter)],
+    components: buildDiscoveryActionRows(nextProfile, filter),
     ephemeral: true
   });
 }
@@ -893,9 +1352,9 @@ function formatMatchStatus(status: MatchSummary['status']): string {
   return labels[status];
 }
 
-function buildDiscoveryReportModal(targetProfileId: string): ModalBuilder {
+function buildDiscoveryReportModal(targetProfileId: string, filter: DiscoveryFilter = 'Todos'): ModalBuilder {
   return new ModalBuilder()
-    .setCustomId(`${DISCOVERY_REPORT_MODAL_PREFIX}:${targetProfileId}`)
+    .setCustomId(`${DISCOVERY_REPORT_MODAL_PREFIX}:${targetProfileId}:${encodeDiscoveryFilter(filter)}`)
     .setTitle('Denunciar perfil')
     .addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -917,26 +1376,98 @@ function buildDiscoveryReportModal(targetProfileId: string): ModalBuilder {
     );
 }
 
-function buildDiscoveryButtonId(action: DiscoveryAction, targetProfileId: string): string {
-  return `suinder:discover:${action}:${targetProfileId}`;
+function buildDiscoveryButtonId(action: DiscoveryAction, targetProfileId: string, filter: DiscoveryFilter = 'Todos'): string {
+  return `suinder:discover:${action}:${targetProfileId}:${encodeDiscoveryFilter(filter)}`;
 }
 
-function parseDiscoveryButtonId(customId: string): { action: DiscoveryAction; targetProfileId: string } | null {
-  const [, scope, action, targetProfileId] = customId.split(':');
+function parseDiscoveryButtonId(customId: string): { action: DiscoveryAction; targetProfileId: string; filter: DiscoveryFilter } | null {
+  const [, scope, action, targetProfileId, rawFilter] = customId.split(':');
   if (scope !== 'discover' || !isDiscoveryAction(action) || !targetProfileId) {
     return null;
   }
 
-  return { action, targetProfileId };
+  return { action, targetProfileId, filter: decodeDiscoveryFilter(rawFilter) };
 }
 
-function parseDiscoveryReportModalId(customId: string): string | null {
+function parseDiscoveryReportModalId(customId: string): { targetProfileId: string; filter: DiscoveryFilter } | null {
   const prefix = `${DISCOVERY_REPORT_MODAL_PREFIX}:`;
-  return customId.startsWith(prefix) ? customId.slice(prefix.length) || null : null;
+  if (!customId.startsWith(prefix)) {
+    return null;
+  }
+
+  const [targetProfileId, rawFilter] = customId.slice(prefix.length).split(':');
+  return targetProfileId ? { targetProfileId, filter: decodeDiscoveryFilter(rawFilter) } : null;
+}
+
+function encodeDiscoveryFilter(filter: DiscoveryFilter): string {
+  return filter === 'Todos' ? 'all' : String(LOOKING_FOR_OPTIONS.indexOf(filter));
+}
+
+function decodeDiscoveryFilter(rawFilter: string | undefined): DiscoveryFilter {
+  if (!rawFilter || rawFilter === 'all') {
+    return 'Todos';
+  }
+
+  const index = Number.parseInt(rawFilter, 10);
+  return LOOKING_FOR_OPTIONS[index] ?? 'Todos';
+}
+
+function parseDiscoveryFilter(rawFilter: string | null): DiscoveryFilter {
+  if (rawFilter === 'Todos' || LOOKING_FOR_OPTIONS.includes(rawFilter as LookingForOption)) {
+    return rawFilter as DiscoveryFilter;
+  }
+
+  return 'Todos';
+}
+
+function parsePublicDiscoveryFilter(action: string): DiscoveryFilter {
+  return decodeDiscoveryFilter(action.replace(/^filter_/, ''));
+}
+
+function normalizeDiscoveryFilter(filter: DiscoveryFilter): LookingForOption | null {
+  return filter === 'Todos' ? null : filter;
 }
 
 function isDiscoveryAction(action: string | undefined): action is DiscoveryAction {
-  return action === 'like' || action === 'pass' || action === 'block' || action === 'report' || action === 'next';
+  return action === 'like' || action === 'super_like' || action === 'pass' || action === 'block' || action === 'report' || action === 'next';
+}
+
+
+function buildTermsEmbed(): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setTitle('💚 Antes de entrar no SUÍNDER')
+    .setDescription([
+      'O SUÍNDER é um espaço opcional para conhecer pessoas da comunidade com respeito, segurança e leveza.',
+      '',
+      'Ao participar, você concorda que:',
+      '',
+      '• Tem 18 anos ou mais',
+      '• Vai respeitar os outros participantes',
+      '• Não vai usar o sistema para assédio, exposição ou insistência',
+      '• Não vai se passar por outra pessoa',
+      '• Entende que denúncias podem ser analisadas pela moderação',
+      '• Pode pausar seu perfil, bloquear, denunciar ou sair quando quiser',
+      '',
+      'Participar é opcional. A comunidade vem em primeiro lugar.',
+      '',
+      `Versão dos termos: ${CURRENT_TERMS_VERSION}`
+    ].join('\n'))
+    .setColor(0xff5c8a);
+
+  return applyVisualBanner(embed, 'BANNER_INICIAL');
+}
+
+function buildTermsActionRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(TERMS_ACCEPT_BUTTON_ID)
+      .setLabel('Aceito e quero participar')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(TERMS_DECLINE_BUTTON_ID)
+      .setLabel('Não aceito')
+      .setStyle(ButtonStyle.Secondary)
+  );
 }
 
 function buildCreateProfileActionRow(): ActionRowBuilder<ButtonBuilder> {
@@ -1017,11 +1548,11 @@ function buildProfileModal(mode: 'create' | 'edit', profile?: UserProfile): Moda
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId('receive_dm')
-          .setLabel('Receber DM? Sim ou Não + confirme +18')
-          .setStyle(TextInputStyle.Short)
-          .setPlaceholder('Exemplo: Sim; +18: Sim')
+          .setLabel('DM, +18 e preferências')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('DM: Sim; +18: Sim; Call ou Chat: Call; Dia ou Noite: Noite')
           .setRequired(true)
-          .setValue(profile ? `${profile.receiveDm ? 'Sim' : 'Não'}; +18: Sim` : '')
+          .setValue(profile ? formatReceiveDmAndCompatibility(profile.receiveDm, profile.compatibilityAnswers) : '')
       )
     );
 }
@@ -1039,9 +1570,44 @@ function formatStatus(status: UserProfile['status']): string {
   return labels[status];
 }
 
-function splitReceiveDmAndConsent(rawValue: string): { receiveDm: string; adultConsent: string } {
-  const [receiveDm = '', adultConsent = ''] = rawValue.split(';').map((value) => value.replace(/^\+?18\s*:/i, '').trim());
-  return { receiveDm, adultConsent };
+function splitReceiveDmAndConsent(rawValue: string): { receiveDm: string; adultConsent: string; compatibilityAnswers: string } {
+  const parts = rawValue.split(';').map((value) => value.trim()).filter(Boolean);
+  const receiveDmPart = parts.find((value) => /^dm\s*:/i.test(value)) ?? parts[0] ?? '';
+  const adultConsentPart = parts.find((value) => /^\+?18\s*:/i.test(value)) ?? parts[1] ?? '';
+
+  return {
+    receiveDm: receiveDmPart.replace(/^dm\s*:/i, '').trim(),
+    adultConsent: adultConsentPart.replace(/^\+?18\s*:/i, '').trim(),
+    compatibilityAnswers: rawValue
+  };
+}
+
+function formatReceiveDmAndCompatibility(receiveDm: boolean, answers: CompatibilityAnswers): string {
+  const answerParts = COMPATIBILITY_QUESTIONS
+    .map((question) => answers[question.key] ? `${question.label}: ${answers[question.key]}` : undefined)
+    .filter(Boolean);
+
+  return [`DM: ${receiveDm ? 'Sim' : 'Não'}`, '+18: Sim', ...answerParts].join('; ');
+}
+
+function formatCompatibilityAnswers(answers: CompatibilityAnswers): string {
+  const answerParts = COMPATIBILITY_QUESTIONS
+    .map((question) => answers[question.key] ? `**${question.label}:** ${answers[question.key]}` : undefined)
+    .filter(Boolean);
+
+  return answerParts.length > 0 ? answerParts.join('\n') : 'Não informado.';
+}
+
+function formatCompatibility(profile: UserProfile): string {
+  if (!profile.compatibility) {
+    return '💚 Compatibilidade: não calculada nesta visualização.';
+  }
+
+  const sharedPoints = profile.compatibility.sharedPoints.length > 0
+    ? `\n\nVocês combinam em:\n${profile.compatibility.sharedPoints.join('\n')}`
+    : '\n\nAinda não há pontos principais em comum.';
+
+  return `💚 Compatibilidade: ${profile.compatibility.percentage}%${sharedPoints}`;
 }
 
 async function replyEphemeral(

@@ -1,4 +1,4 @@
-import type { LookingForOption, ProfileStatus, UserProfile } from '../../domain/profile.js';
+import type { CompatibilityAnswers, LookingForOption, ProfileStatus, UserProfile } from '../../domain/profile.js';
 import type { DatabasePool } from '../database/client.js';
 import type { MatchStatus } from './profile-repository.js';
 
@@ -10,6 +10,7 @@ export interface AdminDashboardStats {
   activeMatches: number;
   openReports: number;
   resolvedReports: number;
+  dailyLikeLimit: number;
 }
 
 export interface AdminGuildSettings {
@@ -21,6 +22,8 @@ export interface AdminGuildSettings {
   passExpirationDays: number;
   matchEnabled: boolean;
   reportsEnabled: boolean;
+  superLikeEnabled: boolean;
+  dailyLikeLimit: number;
 }
 
 export interface AdminReportSummary {
@@ -68,6 +71,7 @@ interface DashboardRow {
   active_matches: string;
   open_reports: string;
   resolved_reports: string;
+  daily_like_limit: number;
 }
 
 interface SettingsRow {
@@ -79,6 +83,8 @@ interface SettingsRow {
   pass_expiration_days: number;
   match_enabled: boolean;
   reports_enabled: boolean;
+  super_like_enabled: boolean;
+  daily_like_limit: number;
 }
 
 interface ProfileRow {
@@ -89,6 +95,9 @@ interface ProfileRow {
   age: number | null;
   bio: string;
   looking_for: LookingForOption[];
+  compatibility_answers: CompatibilityAnswers;
+  terms_accepted_at: Date | null;
+  terms_version: string | null;
   receive_dm: boolean;
   avatar_url: string | null;
   status: ProfileStatus;
@@ -137,7 +146,8 @@ export class AdminRepository {
           count(*) filter (where status = 'banned') as banned_profiles,
           (select count(*) from matches where guild_id = $1 and status = 'active') as active_matches,
           (select count(*) from reports where guild_id = $1 and status in ('open', 'reviewing')) as open_reports,
-          (select count(*) from reports where guild_id = $1 and status in ('resolved', 'dismissed')) as resolved_reports
+          (select count(*) from reports where guild_id = $1 and status in ('resolved', 'dismissed')) as resolved_reports,
+          coalesce((select daily_like_limit from guild_settings where guild_id = $1), 30) as daily_like_limit
         from user_profiles
         where guild_id = $1
       `,
@@ -152,7 +162,8 @@ export class AdminRepository {
       bannedProfiles: toNumber(row?.banned_profiles),
       activeMatches: toNumber(row?.active_matches),
       openReports: toNumber(row?.open_reports),
-      resolvedReports: toNumber(row?.resolved_reports)
+      resolvedReports: toNumber(row?.resolved_reports),
+      dailyLikeLimit: row?.daily_like_limit ?? 30
     };
   }
 
@@ -190,8 +201,10 @@ export class AdminRepository {
       ['report_log_channel_id', 'report_log_channel_id'],
       ['profile_review_required', 'profile_review_required'],
       ['pass_expiration_days', 'pass_expiration_days'],
+      ['daily_like_limit', 'daily_like_limit'],
       ['match_enabled', 'match_enabled'],
-      ['reports_enabled', 'reports_enabled']
+      ['reports_enabled', 'reports_enabled'],
+      ['super_like_enabled', 'super_like_enabled']
     ]);
     const column = allowedColumns.get(key);
     if (!column) {
@@ -378,7 +391,7 @@ function parseSettingValue(key: string, value: string): string | number | boolea
     return trimmed;
   }
 
-  if (['profile_review_required', 'match_enabled', 'reports_enabled'].includes(key)) {
+  if (['profile_review_required', 'match_enabled', 'reports_enabled', 'super_like_enabled'].includes(key)) {
     if (['true', 'sim', 's', '1', 'yes'].includes(trimmed.toLowerCase())) {
       return true;
     }
@@ -394,6 +407,14 @@ function parseSettingValue(key: string, value: string): string | number | boolea
       throw new Error('Dias de expiração do pass deve ser inteiro entre 1 e 365.');
     }
     return days;
+  }
+
+  if (key === 'daily_like_limit') {
+    const limit = Number.parseInt(trimmed, 10);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+      throw new Error('Limite diário de likes deve ser inteiro entre 1 e 500.');
+    }
+    return limit;
   }
 
   throw new Error('Configuração administrativa inválida.');
@@ -416,7 +437,9 @@ function mapSettingsRow(row: SettingsRow): AdminGuildSettings {
     profileReviewRequired: row.profile_review_required,
     passExpirationDays: row.pass_expiration_days,
     matchEnabled: row.match_enabled,
-    reportsEnabled: row.reports_enabled
+    reportsEnabled: row.reports_enabled,
+    superLikeEnabled: row.super_like_enabled,
+    dailyLikeLimit: row.daily_like_limit
   };
 }
 
@@ -429,6 +452,9 @@ function mapProfileRow(row: ProfileRow): UserProfile {
     age: row.age,
     bio: row.bio,
     lookingFor: row.looking_for,
+    compatibilityAnswers: row.compatibility_answers ?? {},
+    termsAcceptedAt: row.terms_accepted_at,
+    termsVersion: row.terms_version,
     receiveDm: row.receive_dm,
     avatarUrl: row.avatar_url,
     status: row.status,

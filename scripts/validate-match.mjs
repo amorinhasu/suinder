@@ -14,7 +14,7 @@ async function main() {
   const migration = await readFile('migrations/001_create_v1_tables.sql', 'utf8');
 
   const requiredRepositoryPieces = [
-    'recordLikeAndMaybeCreateMatch(guildId: string, actorProfileId: string, targetProfileId: string)',
+    'recordLikeAndMaybeCreateMatch(guildId: string, actorDiscordUserId: string, actorProfileId: string, targetProfileId: string)',
     "await client.query('begin')",
     "await client.query('commit')",
     "await client.query('rollback')",
@@ -42,11 +42,11 @@ async function main() {
     'likeDiscoveredProfile(',
     "await this.profiles.consumeRateLimit(guildId, discordUserId, 'discovery_like', 30)",
     'isEligibleDiscoveryTarget(targetProfile)',
-    'recordLikeAndMaybeCreateMatch(guildId, viewerProfile.id, targetProfile.id)',
+    'recordLikeAndMaybeCreateMatch(guildId, discordUserId, viewerProfile.id, targetProfile.id)',
     'if (like.matchCreated)',
     "action: 'match.created'",
     'Match criado no SUÍNDER.',
-    'findNextDiscoverableProfile(guildId, viewerProfile.id)'
+    'findNextDiscoverableProfile(guildId, viewerProfile.id, filter)'
   ];
 
   for (const piece of requiredServicePieces) {
@@ -60,7 +60,7 @@ async function main() {
 
   const requiredCommandPieces = [
     'handleDiscoveryLike(',
-    'likeDiscoveredProfile(guildId, interaction.user.id, targetProfileId)',
+    'likeDiscoveredProfile(guildId, interaction.user.id, targetProfileId, normalizeDiscoveryFilter(filter))',
     'sendMatchDms(context, interaction.user.id, result.targetProfile)',
     '💖 Deu match!',
     '💌 Curtida enviada.',
