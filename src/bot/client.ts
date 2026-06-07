@@ -39,7 +39,7 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
           discordUserId: interaction.user.id,
           guildId: interaction.guildId,
           channelId: interaction.channelId,
-          messageId: interaction.message.id
+          messageId: getInteractionMessageId(interaction)
         });
 
         const handled = await handleSuinderButton(interaction, context);
@@ -48,7 +48,7 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
           discordUserId: interaction.user.id,
           guildId: interaction.guildId,
           channelId: interaction.channelId,
-          messageId: interaction.message.id,
+          messageId: getInteractionMessageId(interaction),
           handled
         });
 
@@ -69,7 +69,7 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
           discordUserId: interaction.user.id,
           guildId: interaction.guildId,
           channelId: interaction.channelId,
-          messageId: interaction.message.id
+          messageId: getInteractionMessageId(interaction)
         });
 
         const handled = await handleSuinderSelectMenu(interaction, context);
@@ -78,7 +78,7 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
           discordUserId: interaction.user.id,
           guildId: interaction.guildId,
           channelId: interaction.channelId,
-          messageId: interaction.message.id,
+          messageId: getInteractionMessageId(interaction),
           handled
         });
 
