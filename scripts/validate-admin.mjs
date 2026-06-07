@@ -51,6 +51,9 @@ async function main() {
   assert(index.includes('suinderAdminCommand'), 'Admin command must be loaded by command loader');
   assert(context.includes('admin: AdminService'), 'AppContext must expose AdminService');
   assert(adminLogService.includes('getLogChannelId') && adminLogService.includes('report_log_channel_id'), 'Admin log service must read configured log channel from guild settings');
+  assert(adminLogService.includes('Failed to send SUINDER admin audit log to Discord') && adminLogService.includes('Failed to send SUINDER admin log message'), 'Admin log Discord delivery failures must be logged without failing user flows');
+  assert(adminLogService.includes('serializeErrorForLog(error)') && adminLogService.includes('stack: error.stack'), 'Admin log errors must include detailed stack traces');
+  assert(adminLogService.includes("operation: 'TextChannel.send'") && adminLogService.includes('channelId: textChannel.id'), 'Admin log Discord send must log channel and operation context');
   assert(main.includes('new AdminRepository(database)') && main.includes('new AdminService(adminRepository, adminLogs)'), 'Bootstrap must wire AdminRepository and AdminService');
 
   const requiredRepositoryPieces = [

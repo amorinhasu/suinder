@@ -84,7 +84,7 @@ async function main() {
     'sendSuperLikeNoticeDm(context, result.targetProfile)',
     'sendSuperMatchDms(context, interaction.user.id, interaction.user.username, result.targetProfile)',
     '⭐ Super Like enviado.',
-    '✨ SUPER MATCH!',
+    '⭐✨ SUPER MATCH!',
     'BANNER_SUPER_LIKE',
     'BANNER_SUPER_MATCH',
     'Failed to send super like DM',

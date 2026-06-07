@@ -21,8 +21,27 @@ export class AdminLogService {
   ) {}
 
   public async record(event: AdminLogEvent): Promise<void> {
+    this.logger.debug('Recording SUINDER admin audit log', {
+      function: 'AdminLogService.record',
+      guildId: event.guildId,
+      action: event.action,
+      targetProfileId: event.targetProfileId
+    });
+
     await this.persistAuditLog(event);
-    await this.sendDiscordLog(event);
+
+    try {
+      await this.sendDiscordLog(event);
+    } catch (error) {
+      this.logger.error('Failed to send SUINDER admin audit log to Discord', {
+        function: 'AdminLogService.record',
+        operation: 'sendDiscordLog',
+        guildId: event.guildId,
+        action: event.action,
+        targetProfileId: event.targetProfileId,
+        error: serializeErrorForLog(error)
+      });
+    }
   }
 
   private async persistAuditLog(event: AdminLogEvent): Promise<void> {
@@ -49,27 +68,69 @@ export class AdminLogService {
   private async sendDiscordLog(event: AdminLogEvent): Promise<void> {
     const channelId = await this.getLogChannelId(event);
     if (!channelId) {
-      this.logger.debug('Admin log channel not configured; skipping Discord admin log', { action: event.action });
+      this.logger.debug('Admin log channel not configured; skipping Discord admin log', {
+        function: 'AdminLogService.sendDiscordLog',
+        action: event.action,
+        guildId: event.guildId
+      });
       return;
     }
 
+    this.logger.debug('Fetching SUINDER admin log channel', {
+      function: 'AdminLogService.sendDiscordLog',
+      operation: 'client.channels.fetch',
+      guildId: event.guildId,
+      action: event.action,
+      channelId
+    });
+
     const channel = await this.client.channels.fetch(channelId).catch((error: unknown) => {
-      this.logger.warn('Failed to fetch admin log channel', { error: String(error) });
+      this.logger.warn('Failed to fetch admin log channel', {
+        function: 'AdminLogService.sendDiscordLog',
+        operation: 'client.channels.fetch',
+        guildId: event.guildId,
+        action: event.action,
+        channelId,
+        error: serializeErrorForLog(error)
+      });
       return null;
     });
 
     if (!channel || channel.type !== ChannelType.GuildText) {
       this.logger.warn('Configured admin log channel is unavailable or not a text channel', {
-        channelId
+        function: 'AdminLogService.sendDiscordLog',
+        guildId: event.guildId,
+        action: event.action,
+        channelId,
+        channelType: channel?.type
       });
       return;
     }
 
     const textChannel = channel as TextChannel;
     const summary = event.message ?? `Ação administrativa registrada: ${event.action}`;
-    await textChannel.send({
-      content: `🛡️ **SUÍNDER** — ${summary}`
+    this.logger.debug('Sending SUINDER admin log message', {
+      function: 'AdminLogService.sendDiscordLog',
+      operation: 'TextChannel.send',
+      guildId: event.guildId,
+      action: event.action,
+      channelId: textChannel.id
     });
+
+    try {
+      await textChannel.send({
+        content: `🛡️ **SUÍNDER** — ${summary}`
+      });
+    } catch (error) {
+      this.logger.error('Failed to send SUINDER admin log message', {
+        function: 'AdminLogService.sendDiscordLog',
+        operation: 'TextChannel.send',
+        guildId: event.guildId,
+        action: event.action,
+        channelId: textChannel.id,
+        error: serializeErrorForLog(error)
+      });
+    }
   }
 
   private async getLogChannelId(event: AdminLogEvent): Promise<string | undefined> {
@@ -84,4 +145,22 @@ export class AdminLogService {
       ?? settings?.admin_log_channel_id
       ?? this.config.ADMIN_LOG_CHANNEL_ID;
   }
+}
+
+function serializeErrorForLog(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
+  }
+
+  const maybeDiscordError = error as Error & { code?: unknown; status?: unknown; method?: unknown; url?: unknown; requestBody?: unknown };
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    code: maybeDiscordError.code,
+    status: maybeDiscordError.status,
+    method: maybeDiscordError.method,
+    url: maybeDiscordError.url,
+    requestBody: maybeDiscordError.requestBody
+  };
 }

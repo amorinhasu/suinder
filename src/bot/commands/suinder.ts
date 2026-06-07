@@ -52,6 +52,7 @@ const DM_TEST_BUTTON_ID = 'suinder:dm:test';
 const TERMS_ACCEPT_BUTTON_ID = 'suinder:terms:accept';
 const TERMS_DECLINE_BUTTON_ID = 'suinder:terms:decline';
 const pendingTermsAcceptances = new Set<string>();
+const verifiedDmCapabilities = new Set<string>();
 type MatchAction = 'view' | 'unmatch' | 'block' | 'report';
 type DiscoveryAction = 'like' | 'super_like' | 'pass' | 'block' | 'report' | 'next';
 type SuinderUserInteraction = ChatInputCommandInteraction | ButtonInteraction;
@@ -470,6 +471,14 @@ function clearPendingTermsAcceptance(guildId: string, discordUserId: string): vo
   pendingTermsAcceptances.delete(`${guildId}:${discordUserId}:${CURRENT_TERMS_VERSION}`);
 }
 
+function markDmCapabilityVerified(guildId: string, discordUserId: string): void {
+  verifiedDmCapabilities.add(`${guildId}:${discordUserId}`);
+}
+
+function hasVerifiedDmCapability(guildId: string, discordUserId: string): boolean {
+  return verifiedDmCapabilities.has(`${guildId}:${discordUserId}`);
+}
+
 async function handleDmTestButton(interaction: ButtonInteraction, context: AppContext): Promise<void> {
   if (!await ensureDmCapability(interaction, context)) {
     return;
@@ -485,14 +494,50 @@ async function ensureDmCapability(
   interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction,
   context: AppContext
 ): Promise<boolean> {
+  const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
+  const discordUserId = interaction.user.id;
+
+  if (hasVerifiedDmCapability(guildId, discordUserId)) {
+    context.logger.debug('Skipping SUINDER DM verification; capability already verified in this runtime', {
+      function: 'ensureDmCapability',
+      guildId,
+      discordUserId
+    });
+    return true;
+  }
+
+  const existingProfile = await context.profiles.getProfile(guildId, discordUserId);
+  if (existingProfile?.receiveDm) {
+    markDmCapabilityVerified(guildId, discordUserId);
+    context.logger.debug('Skipping SUINDER DM verification; profile already has verified DM capability', {
+      function: 'ensureDmCapability',
+      guildId,
+      discordUserId,
+      profileId: existingProfile.id
+    });
+    return true;
+  }
+
   try {
-    const user = await context.client.users.fetch(interaction.user.id);
+    context.logger.info('Sending SUINDER DM verification message', {
+      function: 'ensureDmCapability',
+      guildId,
+      discordUserId,
+      customId: 'customId' in interaction ? interaction.customId : undefined,
+      channelId: interaction.channelId
+    });
+    const user = await context.client.users.fetch(discordUserId);
     await user.send({ content: buildDmVerificationMessage() });
+    markDmCapabilityVerified(guildId, discordUserId);
     return true;
   } catch (error) {
     context.logger.warn('Failed to verify SUINDER DM capability', {
-      discordUserId: interaction.user.id,
-      error: error instanceof Error ? error.message : String(error)
+      function: 'ensureDmCapability',
+      guildId,
+      discordUserId,
+      channelId: interaction.channelId,
+      customId: 'customId' in interaction ? interaction.customId : undefined,
+      error: formatErrorForLog(error)
     });
 
     await replyDmVerificationFailed(interaction);
@@ -1768,6 +1813,25 @@ function formatCompatibility(profile: UserProfile): string {
     : '\n\nAinda não há pontos principais em comum.';
 
   return `💚 Compatibilidade: ${profile.compatibility.percentage}%${sharedPoints}`;
+}
+
+
+function formatErrorForLog(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
+  }
+
+  const maybeDiscordError = error as Error & { code?: unknown; status?: unknown; method?: unknown; url?: unknown; requestBody?: unknown };
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    code: maybeDiscordError.code,
+    status: maybeDiscordError.status,
+    method: maybeDiscordError.method,
+    url: maybeDiscordError.url,
+    requestBody: maybeDiscordError.requestBody
+  };
 }
 
 async function replyEphemeral(

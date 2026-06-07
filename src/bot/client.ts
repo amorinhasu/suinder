@@ -37,7 +37,9 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
         context.logger.info('Button interaction received', {
           customId: interaction.customId,
           discordUserId: interaction.user.id,
-          guildId: interaction.guildId
+          guildId: interaction.guildId,
+          channelId: interaction.channelId,
+          messageId: interaction.message.id
         });
 
         const handled = await handleSuinderButton(interaction, context);
@@ -45,6 +47,8 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
           customId: interaction.customId,
           discordUserId: interaction.user.id,
           guildId: interaction.guildId,
+          channelId: interaction.channelId,
+          messageId: interaction.message.id,
           handled
         });
 
@@ -63,7 +67,9 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
         context.logger.info('String select interaction received', {
           customId: interaction.customId,
           discordUserId: interaction.user.id,
-          guildId: interaction.guildId
+          guildId: interaction.guildId,
+          channelId: interaction.channelId,
+          messageId: interaction.message.id
         });
 
         const handled = await handleSuinderSelectMenu(interaction, context);
@@ -71,6 +77,8 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
           customId: interaction.customId,
           discordUserId: interaction.user.id,
           guildId: interaction.guildId,
+          channelId: interaction.channelId,
+          messageId: interaction.message.id,
           handled
         });
 
@@ -90,19 +98,38 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
       }
     } catch (error) {
       context.logger.error('Failed to handle component interaction', {
+        function: 'bindInteractionHandlers.InteractionCreate',
         customId: 'customId' in interaction ? interaction.customId : undefined,
+        interactionType: interaction.type,
         discordUserId: interaction.user.id,
         guildId: interaction.guildId,
-        error: error instanceof Error ? error.message : String(error)
+        channelId: interaction.channelId,
+        messageId: 'message' in interaction ? interaction.message.id : undefined,
+        replied: interaction.isRepliable() ? interaction.replied : undefined,
+        deferred: interaction.isRepliable() ? interaction.deferred : undefined,
+        error: serializeErrorForLog(error)
       });
 
       if (interaction.isRepliable()) {
         const response = { content: 'Erro interno ao processar a interação. Tente novamente mais tarde.', ephemeral: true };
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(response);
-          return;
+        try {
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp(response);
+            return;
+          }
+          await interaction.reply(response);
+        } catch (replyError) {
+          context.logger.error('Failed to send component error response', {
+            function: 'bindInteractionHandlers.InteractionCreate',
+            operation: interaction.replied || interaction.deferred ? 'interaction.followUp' : 'interaction.reply',
+            customId: 'customId' in interaction ? interaction.customId : undefined,
+            discordUserId: interaction.user.id,
+            guildId: interaction.guildId,
+            channelId: interaction.channelId,
+            messageId: 'message' in interaction ? interaction.message.id : undefined,
+            error: serializeErrorForLog(replyError)
+          });
         }
-        await interaction.reply(response);
       }
     }
   });
@@ -125,19 +152,56 @@ async function handleChatInputCommand(
     await command.execute(interaction, context);
   } catch (error) {
     context.logger.error('Failed to execute slash command', {
+      function: 'handleChatInputCommand',
       commandName: interaction.commandName,
-      error: error instanceof Error ? error.message : String(error)
+      discordUserId: interaction.user.id,
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      replied: interaction.replied,
+      deferred: interaction.deferred,
+      error: serializeErrorForLog(error)
     });
 
     const response = { content: 'Erro interno ao executar o comando. Tente novamente mais tarde.', ephemeral: true };
 
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(response);
-      return;
-    }
+    try {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(response);
+        return;
+      }
 
-    await interaction.reply(response);
+      await interaction.reply(response);
+    } catch (replyError) {
+      context.logger.error('Failed to send slash command error response', {
+        function: 'handleChatInputCommand',
+        operation: interaction.replied || interaction.deferred ? 'interaction.followUp' : 'interaction.reply',
+        commandName: interaction.commandName,
+        discordUserId: interaction.user.id,
+        guildId: interaction.guildId,
+        channelId: interaction.channelId,
+        error: serializeErrorForLog(replyError)
+      });
+    }
   }
+}
+
+
+function serializeErrorForLog(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) {
+    return { message: String(error) };
+  }
+
+  const maybeDiscordError = error as Error & { code?: unknown; status?: unknown; method?: unknown; url?: unknown; requestBody?: unknown };
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    code: maybeDiscordError.code,
+    status: maybeDiscordError.status,
+    method: maybeDiscordError.method,
+    url: maybeDiscordError.url,
+    requestBody: maybeDiscordError.requestBody
+  };
 }
 
 export async function startDiscordClient(client: Client, config: Pick<AppConfig, 'DISCORD_TOKEN'>): Promise<void> {
