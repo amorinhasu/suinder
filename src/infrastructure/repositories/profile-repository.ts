@@ -497,42 +497,47 @@ export class ProfileRepository {
         throw new Error('Não é possível curtir um perfil bloqueado.');
       }
 
-      const limitResult = await client.query<{ daily_like_limit: number }>(
-        `
-          select coalesce(
-            (select daily_like_limit from guild_settings where guild_id = $1),
-            30
-          ) as daily_like_limit
-        `,
-        [guildId]
-      );
-      const dailyLimit = limitResult.rows[0]?.daily_like_limit ?? 30;
-      const usage = await client.query<{ count: number }>(
-        `
-          insert into interaction_rate_limits (guild_id, discord_user_id, bucket, count, window_start)
-          values ($1, $2, 'daily_like', 1, date_trunc('day', now()))
-          on conflict (guild_id, discord_user_id, bucket, window_start)
-          do update set count = interaction_rate_limits.count + 1,
-                        updated_at = now()
-          returning count
-        `,
-        [guildId, actorDiscordUserId]
-      );
-
-      if ((usage.rows[0]?.count ?? 0) > dailyLimit) {
-        throw new Error(`Você atingiu o limite diário de ${dailyLimit} curtidas deste servidor.`);
-      }
-
-      await client.query(
+      const likeAction = await client.query<{ action: string }>(
         `
           insert into profile_actions (guild_id, actor_profile_id, target_profile_id, action, expires_at)
           values ($1, $2, $3, 'like', null)
           on conflict (actor_profile_id, target_profile_id)
           do update set action = 'like',
                         expires_at = null
+          where profile_actions.action not in ('like', 'super_like')
+          returning action
         `,
         [guildId, actorProfileId, targetProfileId]
       );
+      const likeRecorded = Boolean(likeAction.rows[0]);
+
+      if (likeRecorded) {
+        const limitResult = await client.query<{ daily_like_limit: number }>(
+          `
+            select coalesce(
+              (select daily_like_limit from guild_settings where guild_id = $1),
+              30
+            ) as daily_like_limit
+          `,
+          [guildId]
+        );
+        const dailyLimit = limitResult.rows[0]?.daily_like_limit ?? 30;
+        const usage = await client.query<{ count: number }>(
+          `
+            insert into interaction_rate_limits (guild_id, discord_user_id, bucket, count, window_start)
+            values ($1, $2, 'daily_like', 1, date_trunc('day', now()))
+            on conflict (guild_id, discord_user_id, bucket, window_start)
+            do update set count = interaction_rate_limits.count + 1,
+                          updated_at = now()
+            returning count
+          `,
+          [guildId, actorDiscordUserId]
+        );
+
+        if ((usage.rows[0]?.count ?? 0) > dailyLimit) {
+          throw new Error(`Você atingiu o limite diário de ${dailyLimit} curtidas deste servidor.`);
+        }
+      }
 
       const reciprocal = await client.query<{ exists: boolean }>(
         `
