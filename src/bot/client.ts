@@ -104,7 +104,7 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
         discordUserId: interaction.user.id,
         guildId: interaction.guildId,
         channelId: interaction.channelId,
-        messageId: 'message' in interaction ? interaction.message.id : undefined,
+        messageId: 'message' in interaction ? interaction.message?.id : undefined,
         replied: interaction.isRepliable() ? interaction.replied : undefined,
         deferred: interaction.isRepliable() ? interaction.deferred : undefined,
         error: serializeErrorForLog(error)
@@ -126,7 +126,7 @@ export function bindInteractionHandlers(client: SuinderClient, contextFactory: (
             discordUserId: interaction.user.id,
             guildId: interaction.guildId,
             channelId: interaction.channelId,
-            messageId: 'message' in interaction ? interaction.message.id : undefined,
+            messageId: 'message' in interaction ? interaction.message?.id : undefined,
             error: serializeErrorForLog(replyError)
           });
         }
@@ -184,7 +184,6 @@ async function handleChatInputCommand(
     }
   }
 }
-
 
 function serializeErrorForLog(error: unknown): Record<string, unknown> {
   if (!(error instanceof Error)) {
