@@ -532,7 +532,7 @@ Recomendação crítica: se a comunidade já teve problemas de moderação, usar
 
 ### 11.1.1 Termos de Participação
 
-Antes de criar perfil ou continuar usando o SUÍNDER, o usuário deve aceitar os Termos de Participação vigentes. A versão atual é `2026-06` e o perfil armazena `terms_accepted_at` e `terms_version`. Se a versão mudar no futuro, usuários existentes devem aceitar novamente antes de usar fluxos comuns. Recusar os termos encerra o fluxo sem criar perfil.
+Antes de criar perfil ou continuar usando o SUÍNDER, o usuário deve aceitar os Termos de Participação vigentes. A versão atual é `2026-06`. O clique em aceite é persistido imediatamente em `user_terms_acceptances` por `guild_id`, `discord_user_id` e `terms_version`; ao criar o perfil, o aceite persistido é copiado para `user_profiles.terms_accepted_at` e `user_profiles.terms_version`. Se a versão mudar no futuro, usuários existentes devem aceitar novamente antes de usar fluxos comuns. Recusar os termos encerra o fluxo sem criar perfil.
 
 ### 11.2 Descoberta de perfil
 

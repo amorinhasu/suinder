@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+export const DEFAULT_ADMIN_LOG_CHANNEL_ID = '1513997908138266866';
+
 const optionalDiscordSnowflake = z
   .string()
   .regex(/^\d+$/, 'must be a Discord snowflake')
@@ -16,6 +18,7 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+  SUINDER_LOG_CHANNEL: optionalDiscordSnowflake,
   ADMIN_LOG_CHANNEL_ID: optionalDiscordSnowflake,
   MODERATOR_ROLE_ID: optionalDiscordSnowflake,
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

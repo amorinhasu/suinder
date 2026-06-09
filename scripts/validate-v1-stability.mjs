@@ -67,7 +67,9 @@ async function main() {
     'compatibility_answers',
     'terms_accepted_at',
     'terms_version',
-    "target.terms_version = '2026-06'"
+    "target.terms_version = '2026-06'",
+    'findTermsAcceptance',
+    'user_terms_acceptances'
   ], 'Profile repository');
 
   requireAll(suinderCommand, [
@@ -87,7 +89,9 @@ async function main() {
     'TERMS_ACCEPT_BUTTON_ID',
     'TERMS_DECLINE_BUTTON_ID',
     'buildTermsEmbed',
-    'showTermsPanel(interaction)'
+    'showTermsPanel(interaction)',
+    'hasAcceptedCurrentTermsForUser',
+    'getCurrentTermsAcceptance'
   ], 'SUÍNDER command');
 
   requireAll(adminService, [
@@ -134,6 +138,8 @@ async function main() {
   assert(migrations.indexOf('010_add_daily_like_limit.sql') < migrations.indexOf('011_add_compatibility_answers.sql'), 'Migrations must keep daily-like before compatibility in sorted order');
   assert(migrations.indexOf('011_add_compatibility_answers.sql') < migrations.indexOf('012_add_profile_terms.sql'), 'Migrations must keep compatibility before terms in sorted order');
   assert(migrations.indexOf('012_add_profile_terms.sql') < migrations.indexOf('013_add_guided_profile_interests.sql'), 'Migrations must keep guided interests after terms in sorted order');
+  assert(migrations.includes('015_create_user_terms_acceptances.sql'), 'Persistent terms acceptance migration must exist');
+  assert(migrations.indexOf('014_configure_default_admin_log_channel.sql') < migrations.indexOf('015_create_user_terms_acceptances.sql'), 'Persistent terms acceptance migration must run after existing migrations in sorted order');
 
   const superLikeMethod = profileRepository.slice(profileRepository.indexOf('recordSuperLikeAndMaybeCreateMatch'));
   assert(!superLikeMethod.slice(0, superLikeMethod.indexOf('public async recordPass')).includes("'daily_like'"), 'Super Like must not consume daily like limit');

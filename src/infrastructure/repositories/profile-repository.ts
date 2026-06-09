@@ -9,8 +9,17 @@ interface MatchRow {
   id: string;
 }
 
+interface ProfileActionRow {
+  action: 'like' | 'pass' | 'super_like';
+}
+
 interface SuperLikeUsageRow {
   id: string;
+}
+
+interface TermsAcceptanceRow {
+  accepted_at: Date;
+  terms_version: string;
 }
 
 interface MatchWithProfileRow extends ProfileRow {
@@ -36,6 +45,11 @@ export interface LikeResult {
 
 export interface SuperLikeResult extends LikeResult {
   superLikeCreated: boolean;
+}
+
+export interface TermsAcceptance {
+  acceptedAt: Date;
+  termsVersion: string;
 }
 
 interface ProfileRow {
@@ -155,21 +169,58 @@ export class ProfileRepository {
   }
 
   public async acceptTerms(guildId: string, discordUserId: string, termsVersion: string): Promise<UserProfile | null> {
+    const acceptance = await this.recordTermsAcceptance(guildId, discordUserId, termsVersion);
     const result = await this.database.query<ProfileRow>(
       `
         update user_profiles
-        set terms_accepted_at = now(),
-            terms_version = $3,
+        set terms_accepted_at = $3,
+            terms_version = $4,
             updated_at = now()
         where guild_id = $1
           and discord_user_id = $2
           and status <> 'deleted'
         returning *
       `,
-      [guildId, discordUserId, termsVersion]
+      [guildId, discordUserId, acceptance.acceptedAt, acceptance.termsVersion]
     );
 
     return result.rows[0] ? mapProfileRow(result.rows[0]) : null;
+  }
+
+  public async recordTermsAcceptance(guildId: string, discordUserId: string, termsVersion: string): Promise<TermsAcceptance> {
+    const result = await this.database.query<TermsAcceptanceRow>(
+      `
+        insert into user_terms_acceptances (guild_id, discord_user_id, terms_version, accepted_at)
+        values ($1, $2, $3, now())
+        on conflict (guild_id, discord_user_id, terms_version) do update set
+          accepted_at = now()
+        returning accepted_at, terms_version
+      `,
+      [guildId, discordUserId, termsVersion]
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error('Aceite dos termos não foi retornado pelo banco.');
+    }
+
+    return mapTermsAcceptanceRow(row);
+  }
+
+  public async findTermsAcceptance(guildId: string, discordUserId: string, termsVersion: string): Promise<TermsAcceptance | null> {
+    const result = await this.database.query<TermsAcceptanceRow>(
+      `
+        select accepted_at, terms_version
+        from user_terms_acceptances
+        where guild_id = $1
+          and discord_user_id = $2
+          and terms_version = $3
+        limit 1
+      `,
+      [guildId, discordUserId, termsVersion]
+    );
+
+    return result.rows[0] ? mapTermsAcceptanceRow(result.rows[0]) : null;
   }
 
   public async update(guildId: string, profileId: string, input: Omit<ProfileInput, 'guildId' | 'discordUserId' | 'avatarUrl' | 'termsAcceptedAt' | 'termsVersion'>): Promise<UserProfile> {
@@ -478,6 +529,11 @@ export class ProfileRepository {
 
     try {
       await client.query('begin');
+      await client.query(
+        'select pg_advisory_xact_lock(hashtext($1))',
+        [`${guildId}:${actorProfileId}:${targetProfileId}:like`]
+      );
+
       const blocked = await client.query<{ exists: boolean }>(
         `
           select exists (
@@ -497,21 +553,22 @@ export class ProfileRepository {
         throw new Error('Não é possível curtir um perfil bloqueado.');
       }
 
-      const likeAction = await client.query<{ action: string }>(
+      const existingAction = await client.query<ProfileActionRow>(
         `
-          insert into profile_actions (guild_id, actor_profile_id, target_profile_id, action, expires_at)
-          values ($1, $2, $3, 'like', null)
-          on conflict (actor_profile_id, target_profile_id)
-          do update set action = 'like',
-                        expires_at = null
-          where profile_actions.action not in ('like', 'super_like')
-          returning action
+          select action
+          from profile_actions
+          where guild_id = $1
+            and actor_profile_id = $2
+            and target_profile_id = $3
+          limit 1
+          for update
         `,
         [guildId, actorProfileId, targetProfileId]
       );
-      const likeRecorded = Boolean(likeAction.rows[0]);
+      const previousAction = existingAction.rows[0]?.action;
+      const likeAlreadyRecorded = previousAction === 'like' || previousAction === 'super_like';
 
-      if (likeRecorded) {
+      if (!likeAlreadyRecorded) {
         const limitResult = await client.query<{ daily_like_limit: number }>(
           `
             select coalesce(
@@ -536,6 +593,28 @@ export class ProfileRepository {
 
         if ((usage.rows[0]?.count ?? 0) > dailyLimit) {
           throw new Error(`Você atingiu o limite diário de ${dailyLimit} curtidas deste servidor.`);
+        }
+
+        if (previousAction) {
+          await client.query(
+            `
+              update profile_actions
+              set action = 'like',
+                  expires_at = null
+              where guild_id = $1
+                and actor_profile_id = $2
+                and target_profile_id = $3
+            `,
+            [guildId, actorProfileId, targetProfileId]
+          );
+        } else {
+          await client.query(
+            `
+              insert into profile_actions (guild_id, actor_profile_id, target_profile_id, action, expires_at)
+              values ($1, $2, $3, 'like', null)
+            `,
+            [guildId, actorProfileId, targetProfileId]
+          );
         }
       }
 
@@ -844,6 +923,13 @@ export class ProfileRepository {
 
     return result.rows[0]?.profile_review_required ?? false;
   }
+}
+
+function mapTermsAcceptanceRow(row: TermsAcceptanceRow): TermsAcceptance {
+  return {
+    acceptedAt: row.accepted_at,
+    termsVersion: row.terms_version
+  };
 }
 
 function mapProfileRow(row: ProfileRow): UserProfile {

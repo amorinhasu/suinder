@@ -4,7 +4,7 @@ import { ProfileService } from './application/services/profile-service.js';
 import { bindInteractionHandlers, createDiscordClient, startDiscordClient } from './bot/client.js';
 import { loadSlashCommands } from './bot/commands/index.js';
 import { registerGuildSlashCommands } from './bot/register-commands.js';
-import { loadConfig } from './infrastructure/config.js';
+import { DEFAULT_ADMIN_LOG_CHANNEL_ID, loadConfig } from './infrastructure/config.js';
 import { assertDatabaseConnection, createDatabasePool } from './infrastructure/database/client.js';
 import { createLogger } from './infrastructure/logger.js';
 import { AdminRepository } from './infrastructure/repositories/admin-repository.js';
@@ -23,6 +23,11 @@ async function bootstrap(): Promise<void> {
   const admin = new AdminService(adminRepository, adminLogs);
 
   await assertDatabaseConnection(database);
+  const settings = await adminRepository.ensureDefaultAdminLogChannel(config.DISCORD_GUILD_ID, DEFAULT_ADMIN_LOG_CHANNEL_ID);
+  logger.info('Ensured SUINDER default admin log channel', {
+    guildId: config.DISCORD_GUILD_ID,
+    adminLogChannelId: settings.adminLogChannelId
+  });
   await registerGuildSlashCommands(config, commands, logger);
 
   bindInteractionHandlers(client, () => ({

@@ -23,9 +23,14 @@ async function main() {
     'block.blocked_profile_id = $3',
     'block.blocker_profile_id = $3',
     'block.blocked_profile_id = $2',
+    'pg_advisory_xact_lock',
+    'select action',
+    'for update',
+    "previousAction === 'like' || previousAction === 'super_like'",
+    'if (!likeAlreadyRecorded)',
     'insert into profile_actions',
     "values ($1, $2, $3, 'like', null)",
-    "action = 'like'",
+    "set action = 'like'",
     'insert into matches',
     "least($2::uuid, $3::uuid)",
     "greatest($2::uuid, $3::uuid)",
@@ -37,6 +42,15 @@ async function main() {
   for (const piece of requiredRepositoryPieces) {
     assert(repository.includes(piece), `Match repository is missing required piece: ${piece}`);
   }
+
+  const likeMethod = repository.slice(
+    repository.indexOf('recordLikeAndMaybeCreateMatch'),
+    repository.indexOf('recordSuperLikeAndMaybeCreateMatch')
+  );
+  assert(likeMethod.includes('if (!likeAlreadyRecorded)'), 'Repeated likes must be detected before consuming the daily-like bucket');
+  assert(likeMethod.indexOf('if (!likeAlreadyRecorded)') < likeMethod.indexOf("'daily_like'"), 'Daily-like consumption must only happen inside the new-like branch');
+  assert(likeMethod.indexOf('select action') < likeMethod.indexOf("'daily_like'"), 'Existing like action must be checked before daily-like consumption');
+  assert(likeMethod.includes('pg_advisory_xact_lock'), 'Like flow must use a per-pair transaction lock to avoid duplicate concurrent consumption');
 
   const requiredServicePieces = [
     'likeDiscoveredProfile(',

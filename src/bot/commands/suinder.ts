@@ -51,7 +51,6 @@ const MATCH_REPORT_MODAL_PREFIX = 'suinder:match-report';
 const DM_TEST_BUTTON_ID = 'suinder:dm:test';
 const TERMS_ACCEPT_BUTTON_ID = 'suinder:terms:accept';
 const TERMS_DECLINE_BUTTON_ID = 'suinder:terms:decline';
-const pendingTermsAcceptances = new Set<string>();
 const verifiedDmCapabilities = new Set<string>();
 type MatchAction = 'view' | 'unmatch' | 'block' | 'report';
 type DiscoveryAction = 'like' | 'super_like' | 'pass' | 'block' | 'report' | 'next';
@@ -274,7 +273,7 @@ export async function handleSuinderButton(interaction: ButtonInteraction, contex
       return true;
     }
 
-    if (!hasPendingTermsAcceptance(guildId, interaction.user.id)) {
+    if (!await context.profiles.hasAcceptedCurrentTermsForUser(guildId, interaction.user.id)) {
       await showTermsPanel(interaction);
       return true;
     }
@@ -428,7 +427,6 @@ async function handleTermsButton(interaction: ButtonInteraction, context: AppCon
   const guildId = interaction.guildId ?? context.config.DISCORD_GUILD_ID;
 
   if (interaction.customId === TERMS_DECLINE_BUTTON_ID) {
-    clearPendingTermsAcceptance(guildId, interaction.user.id);
     await interaction.update({
       content: 'Tudo bem. Sem aceitar os termos, não é possível participar do SUÍNDER.',
       embeds: [],
@@ -437,7 +435,6 @@ async function handleTermsButton(interaction: ButtonInteraction, context: AppCon
     return;
   }
 
-  markPendingTermsAcceptance(guildId, interaction.user.id);
   const profile = await context.profiles.acceptTerms(guildId, interaction.user.id);
   if (profile) {
     await interaction.update({
@@ -457,18 +454,6 @@ async function showTermsPanel(interaction: SuinderUserInteraction): Promise<void
     components: [buildTermsActionRow()],
     ephemeral: true
   });
-}
-
-function markPendingTermsAcceptance(guildId: string, discordUserId: string): void {
-  pendingTermsAcceptances.add(`${guildId}:${discordUserId}:${CURRENT_TERMS_VERSION}`);
-}
-
-function hasPendingTermsAcceptance(guildId: string, discordUserId: string): boolean {
-  return pendingTermsAcceptances.has(`${guildId}:${discordUserId}:${CURRENT_TERMS_VERSION}`);
-}
-
-function clearPendingTermsAcceptance(guildId: string, discordUserId: string): void {
-  pendingTermsAcceptances.delete(`${guildId}:${discordUserId}:${CURRENT_TERMS_VERSION}`);
 }
 
 function markDmCapabilityVerified(guildId: string, discordUserId: string): void {
@@ -687,22 +672,25 @@ export async function handleSuinderModalSubmit(interaction: ModalSubmitInteracti
   const existingProfile = interaction.customId === PROFILE_EDIT_MODAL_ID
     ? await context.profiles.getProfile(guildId, interaction.user.id)
     : null;
-  const input = buildProfileFormInput(interaction, guildId, existingProfile);
 
   try {
     if (interaction.customId === PROFILE_CREATE_MODAL_ID && !await ensureDmCapability(interaction, context)) {
       return true;
     }
 
-    if (interaction.customId === PROFILE_CREATE_MODAL_ID && !hasPendingTermsAcceptance(input.guildId, interaction.user.id)) {
+    const termsAcceptance = interaction.customId === PROFILE_CREATE_MODAL_ID
+      ? await context.profiles.getCurrentTermsAcceptance(guildId, interaction.user.id)
+      : null;
+
+    if (interaction.customId === PROFILE_CREATE_MODAL_ID && !termsAcceptance) {
       throw new Error('Aceite os termos atuais do SUÍNDER antes de criar seu perfil.');
     }
+
+    const input = buildProfileFormInput(interaction, guildId, existingProfile, termsAcceptance);
 
     const profile = interaction.customId === PROFILE_CREATE_MODAL_ID
       ? await context.profiles.createProfile(input)
       : await updateExistingProfile(interaction, context, input);
-
-    clearPendingTermsAcceptance(input.guildId, interaction.user.id);
 
     const savedProfileMessage = interaction.customId === PROFILE_CREATE_MODAL_ID
       ? '💚 Perfil criado! Agora você pode escolher seus interesses e ajustar suas preferências no painel abaixo.'
@@ -741,7 +729,8 @@ async function updateExistingProfile(
 function buildProfileFormInput(
   interaction: ModalSubmitInteraction,
   guildId: string,
-  existingProfile: UserProfile | null
+  existingProfile: UserProfile | null,
+  termsAcceptance: { acceptedAt: Date; termsVersion: string } | null = null
 ): RawProfileFormInput {
   return {
     guildId,
@@ -754,8 +743,8 @@ function buildProfileFormInput(
     compatibilityAnswers: existingProfile ? serializeCompatibilityAnswers(existingProfile.compatibilityAnswers) : '',
     receiveDm: 'Sim',
     adultConsent: 'Sim',
-    termsAcceptedAt: hasPendingTermsAcceptance(guildId, interaction.user.id) ? new Date() : undefined,
-    termsVersion: hasPendingTermsAcceptance(guildId, interaction.user.id) ? CURRENT_TERMS_VERSION : undefined
+    termsAcceptedAt: termsAcceptance?.acceptedAt,
+    termsVersion: termsAcceptance?.termsVersion
   };
 }
 
@@ -764,7 +753,7 @@ async function showProfilePanel(interaction: SuinderUserInteraction, context: Ap
   const profile = await context.profiles.getProfile(guildId, interaction.user.id);
 
   if (!profile) {
-    if (!hasPendingTermsAcceptance(guildId, interaction.user.id)) {
+    if (!await context.profiles.hasAcceptedCurrentTermsForUser(guildId, interaction.user.id)) {
       await showTermsPanel(interaction);
       return;
     }

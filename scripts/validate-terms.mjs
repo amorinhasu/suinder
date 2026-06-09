@@ -9,6 +9,7 @@ function assert(condition, message) {
 
 async function main() {
   const migration = await readFile('migrations/012_add_profile_terms.sql', 'utf8');
+  const acceptanceMigration = await readFile('migrations/015_create_user_terms_acceptances.sql', 'utf8');
   const domain = await readFile('src/domain/profile.ts', 'utf8');
   const repository = await readFile('src/infrastructure/repositories/profile-repository.ts', 'utf8');
   const service = await readFile('src/application/services/profile-service.ts', 'utf8');
@@ -36,10 +37,24 @@ async function main() {
     assert(domain.includes(piece), `Terms domain missing: ${piece}`);
   }
 
+  const acceptanceMigrationPieces = [
+    'create table if not exists user_terms_acceptances',
+    'unique (guild_id, discord_user_id, terms_version)',
+    'idx_user_terms_acceptances_current',
+    'insert into user_terms_acceptances',
+    'from user_profiles'
+  ];
+  for (const piece of acceptanceMigrationPieces) {
+    assert(acceptanceMigration.includes(piece), `Terms acceptance migration missing: ${piece}`);
+  }
+
   const repositoryPieces = [
     'terms_accepted_at',
     'terms_version',
     'acceptTerms(guildId: string, discordUserId: string, termsVersion: string)',
+    'recordTermsAcceptance',
+    'findTermsAcceptance',
+    'from user_terms_acceptances',
     "target.terms_version = '2026-06'"
   ];
   for (const piece of repositoryPieces) {
@@ -48,6 +63,8 @@ async function main() {
 
   const servicePieces = [
     'acceptTerms(guildId: string, discordUserId: string)',
+    'getCurrentTermsAcceptance(guildId: string, discordUserId: string)',
+    'hasAcceptedCurrentTermsForUser(guildId: string, discordUserId: string)',
     'ensureCurrentTerms(viewerProfile)',
     'ensureCurrentTermsInput(profileInput)',
     'hasAcceptedCurrentTerms(profile)'
@@ -77,6 +94,8 @@ async function main() {
 
   assert(visualAssets.includes('BANNER_TERMOS') && visualAssets.includes('1511812347143131156/content.png'), 'Terms must use the dedicated BANNER_TERMOS visual asset');
   assert(command.includes("adultConsent: 'Sim'") && !command.includes('DM e preferências opcionais') && !command.includes('DM, +18 e preferências'), 'Profile modal must derive +18/DM consent from accepted terms and not ask for free-form consent text');
+  assert(!command.includes('pendingTermsAcceptances') && !command.includes('hasPendingTermsAcceptance'), 'Terms flow must not depend on in-memory pending acceptances');
+  assert(command.includes('context.profiles.getCurrentTermsAcceptance(guildId, interaction.user.id)'), 'Profile creation modal submit must validate persisted terms acceptance');
   assert(command.includes(".setLabel('Idade')") && command.includes(".setPlaceholder('Exemplo: 18, 25 ou 31')") && !command.includes('Idade (+18 obrigatório)'), 'Age field must use a clear label and numeric examples placeholder');
   assert(domain.includes('/^\\+?\\d+$/') && domain.includes('Informe sua idade usando apenas números. Exemplos: 18, 25 ou 31.') && domain.includes('Você precisa ter 18 anos ou mais para participar do SUÍNDER.'), 'Age parser must accept optional plus sign and return clear validation errors');
   assert(client.includes('Button interaction received') && client.includes('Button interaction routed'), 'Button dispatcher must log receipt and routing');

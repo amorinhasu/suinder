@@ -32,11 +32,17 @@ async function main() {
     "'daily_like'",
     "date_trunc('day', now())",
     'Você atingiu o limite diário',
-    'recordSuperLikeAndMaybeCreateMatch'
+    'recordSuperLikeAndMaybeCreateMatch',
+    'likeAlreadyRecorded',
+    'if (!likeAlreadyRecorded)'
   ];
   for (const piece of dailyLimitPieces) {
     assert(repository.includes(piece), `Repository missing daily-like rule: ${piece}`);
   }
+
+  const likeMethod = repository.slice(repository.indexOf('recordLikeAndMaybeCreateMatch'), repository.indexOf('recordSuperLikeAndMaybeCreateMatch'));
+  assert(likeMethod.indexOf('if (!likeAlreadyRecorded)') < likeMethod.indexOf("'daily_like'"), 'Daily like limit must only be consumed when a new valid like is recorded');
+  assert(likeMethod.includes('for update') && likeMethod.includes('pg_advisory_xact_lock'), 'Like idempotency must be concurrency-safe');
 
   const superLikeMethod = repository.slice(repository.indexOf('recordSuperLikeAndMaybeCreateMatch'));
   assert(!superLikeMethod.slice(0, superLikeMethod.indexOf('public async recordPass')).includes("'daily_like'"), 'Super Like must not consume the daily like bucket');

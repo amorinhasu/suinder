@@ -195,6 +195,25 @@ export class AdminRepository {
     return mapSettingsRow(requireSettingsRow(result.rows[0]));
   }
 
+  public async ensureDefaultAdminLogChannel(guildId: string, channelId: string): Promise<AdminGuildSettings> {
+    const result = await this.database.query<SettingsRow>(
+      `
+        insert into guild_settings (guild_id, admin_log_channel_id)
+        values ($1, $2)
+        on conflict (guild_id) do update set
+          admin_log_channel_id = coalesce(guild_settings.admin_log_channel_id, excluded.admin_log_channel_id),
+          updated_at = case
+            when guild_settings.admin_log_channel_id is null then now()
+            else guild_settings.updated_at
+          end
+        returning *
+      `,
+      [guildId, channelId]
+    );
+
+    return mapSettingsRow(requireSettingsRow(result.rows[0]));
+  }
+
   public async updateSetting(guildId: string, key: string, value: string): Promise<AdminGuildSettings> {
     const allowedColumns = new Map<string, string>([
       ['admin_log_channel_id', 'admin_log_channel_id'],

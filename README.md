@@ -233,7 +233,7 @@ Campos do perfil:
 - Bio curta, limitada a 500 caracteres.
 - O modal de criação/edição coleta apenas apelido, idade e bio para reduzir erros de cadastro.
 - Interesses configurados pelo botão **✨ Interesses**, com seleção múltipla guiada de até 5 opções entre `Jogos`, `Filmes e Séries`, `Música`, `Conversar`, `Livros`, `Romance`, `Amizade`, `Calls`, `Arte` e `Memes`.
-- Aceite dos Termos de Participação como consentimento +18 obrigatório, com banner visual próprio; o modal não exige digitar uma confirmação +18 separada.
+- Aceite dos Termos de Participação como consentimento +18 obrigatório, com banner visual próprio; o modal não exige digitar uma confirmação +18 separada. O aceite é persistido imediatamente em `user_terms_acceptances`, então reinícios do bot ou múltiplas instâncias não fazem o usuário perder o aceite antes de enviar o modal.
 - A DM é obrigatória e validada pelo bot antes de criar ou reativar perfil, sem campo manual de “DM: Sim/Não”.
 - Avatar atual do Discord como foto padrão, sem upload de imagem.
 
@@ -298,5 +298,20 @@ Subcomandos disponíveis:
 - `/suinder-admin perfil`: permite aprovar, suspender, banir, reativar e ver histórico de um perfil existente. O sistema bloqueia auto-suspensão e auto-banimento.
 - `/suinder-admin denuncias`: permite listar denúncias abertas, ver detalhes, marcar como resolvida, suspender usuário denunciado ou banir usuário denunciado.
 - `/suinder-admin config`: permite alterar canal de logs, canal de denúncias, aprovação manual de perfil, dias de expiração do pass, limite diário de likes, ativação de match, ativação de denúncias e ativação de Super Like.
+
+
+### Logs administrativos no Discord
+
+A guild principal do SUÍNDER usa o canal `1513997908138266866` como canal padrão de logs administrativos. No bootstrap, o bot garante que `guild_settings.admin_log_channel_id` esteja preenchido com esse canal quando ainda não houver canal configurado para a guild. A ordem de fallback é: `guild_settings.admin_log_channel_id`, `SUINDER_LOG_CHANNEL`, `ADMIN_LOG_CHANNEL_ID` legado e, por fim, o canal padrão `1513997908138266866`.
+
+Eventos que chamam o serviço de auditoria são persistidos em `admin_audit_logs` e enviados ao Discord como embeds verdes quando o canal configurado existe e o bot tem permissão de visualizar/enviar mensagens. Eventos de denúncia tentam usar primeiro `report_log_channel_id`; se ele não estiver configurado, usam `admin_log_channel_id`.
+
+Para consultar ou alterar os canais:
+
+- `/suinder-admin config`
+- `/suinder-admin config chave:admin_log_channel_id valor:1513997908138266866`
+- `/suinder-admin config chave:report_log_channel_id valor:<ID_DO_CANAL_DE_DENUNCIAS>`
+
+Na Square Cloud, prefira configurar `SUINDER_LOG_CHANNEL=1513997908138266866`. Instalações antigas ainda podem usar `ADMIN_LOG_CHANNEL_ID`.
 
 A estabilização da V1 garante que `match_enabled=false` bloqueia curtidas e ações comuns de matches, `reports_enabled=false` bloqueia denúncias comuns, `super_like_enabled=false` bloqueia Super Likes, ações comuns exigem perfil ativo, botões antigos e botões do painel público continuam revalidados no servidor e updates críticos de perfil filtram por `guild_id`.

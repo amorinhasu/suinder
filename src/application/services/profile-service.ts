@@ -15,7 +15,7 @@ import {
   type ProfileInput,
   type UserProfile
 } from '../../domain/profile.js';
-import type { MatchWithProfile, ProfileRepository } from '../../infrastructure/repositories/profile-repository.js';
+import type { MatchWithProfile, ProfileRepository, TermsAcceptance } from '../../infrastructure/repositories/profile-repository.js';
 import type { AdminLogService } from './admin-log-service.js';
 
 export type MatchSummary = MatchWithProfile;
@@ -51,6 +51,14 @@ export class ProfileService {
 
   public async acceptTerms(guildId: string, discordUserId: string): Promise<UserProfile | null> {
     return this.profiles.acceptTerms(guildId, discordUserId, CURRENT_TERMS_VERSION);
+  }
+
+  public async getCurrentTermsAcceptance(guildId: string, discordUserId: string): Promise<TermsAcceptance | null> {
+    return this.profiles.findTermsAcceptance(guildId, discordUserId, CURRENT_TERMS_VERSION);
+  }
+
+  public async hasAcceptedCurrentTermsForUser(guildId: string, discordUserId: string): Promise<boolean> {
+    return Boolean(await this.getCurrentTermsAcceptance(guildId, discordUserId));
   }
 
   public async listActiveMatches(guildId: string, discordUserId: string): Promise<MatchSummary[]> {
@@ -337,7 +345,16 @@ export class ProfileService {
       throw new Error('Você já possui um perfil no SUÍNDER.');
     }
 
-    const profileInput = normalizeProfileInput(input);
+    const termsAcceptance = await this.getCurrentTermsAcceptance(input.guildId, input.discordUserId);
+    if (!termsAcceptance) {
+      throw new Error('Aceite os termos atuais do SUÍNDER antes de criar seu perfil.');
+    }
+
+    const profileInput = normalizeProfileInput({
+      ...input,
+      termsAcceptedAt: termsAcceptance.acceptedAt,
+      termsVersion: termsAcceptance.termsVersion
+    });
     this.ensureCurrentTermsInput(profileInput);
     const requireReview = await this.profiles.shouldRequireProfileReview(input.guildId);
     const profile = await this.profiles.create(profileInput, requireReview ? 'pending_review' : 'active');
